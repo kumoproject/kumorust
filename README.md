@@ -24,4 +24,16 @@ Run it with:
 cargo run
 ```
 
-The dependency is pulled directly from the `master` branch of `windows-rs`.
+## Package
+
+Install `cargo-dist` 0.32.0, then build the Windows ARM64 archive with:
+
+```text
+cargo dist build --artifacts=local
+```
+
+The archive is written to `target/distrib/` and includes the self-contained
+Windows App SDK runtime files staged by `build.rs`.
+
+The `windows-rs` dependencies are pinned to commit
+`79d8db43bbd38167941416cea2004dd3067e785a`.

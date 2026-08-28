@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 url = "2"
