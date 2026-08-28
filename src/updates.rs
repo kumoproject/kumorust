@@ -1,9 +1,8 @@
 use std::process::Command;
 
+use crate::settings_controls::SettingsCard;
 use windows_reactor::{
-    AsyncSetState, BackgroundExt, Button, Element, GridChildExt, GridLength, HorizontalAlignment,
-    LayoutExt, PaddingExt, Symbol, TextStyleExt, Thickness, VerticalAlignment, body_strong, border,
-    button, grid, text_block, tokens, vstack,
+    AsyncSetState, Button, Element, Symbol, TextStyleExt, button, text_block, tokens,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -61,34 +60,14 @@ pub fn settings_card(status: &UpdateStatus, set_status: AsyncSetState<UpdateStat
         .enabled(!busy)
         .on_click(move || start_update(set_status.clone()));
 
-    border(
-        grid((
+    SettingsCard::new(status_heading)
+        .description(status_message)
+        .header_icon(
             text_block("\u{E895}")
                 .font_family("Segoe Fluent Icons")
-                .font_size(28.0)
-                .foreground(tokens::Accent)
-                .horizontal_alignment(HorizontalAlignment::Center)
-                .vertical_alignment(VerticalAlignment::Center)
-                .grid_column(0),
-            vstack((
-                body_strong(status_heading),
-                text_block(status_message)
-                    .font_size(13.0)
-                    .foreground(tokens::SecondaryText)
-                    .wrap(),
-            ))
-            .spacing(5.0)
-            .grid_column(1),
-            action.grid_column(2),
-        ))
-        .columns([GridLength::Pixel(52.0), GridLength::STAR, GridLength::Auto])
-        .column_spacing(18.0)
-        .vertical_alignment(VerticalAlignment::Center)
-        .padding(Thickness::uniform(20.0)),
-    )
-    .background(tokens::CardBackground)
-    .border_brush(tokens::CardStroke)
-    .border_thickness(Thickness::uniform(1.0))
-    .corner_radius(8.0)
-    .into()
+                .font_size(20.0)
+                .foreground(tokens::Accent),
+        )
+        .content(action)
+        .into()
 }

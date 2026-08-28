@@ -3,6 +3,7 @@
 mod icon_extractor;
 mod library;
 mod settings;
+mod settings_controls;
 mod updates;
 
 use std::process::Command;
@@ -13,6 +14,7 @@ use std::sync::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use library::GameEntry;
+use settings_controls::{SettingsCard, SettingsExpander};
 use updates::UpdateStatus;
 use windows_reactor::*;
 
@@ -211,66 +213,53 @@ fn settings_page(
     update_status: &UpdateStatus,
     set_update_status: AsyncSetState<UpdateStatus>,
 ) -> Element {
-    let setting_card = border(
-        grid((
+    let library_card: Element = SettingsCard::new("游戏库位置")
+        .description("从这些文件夹中查找 Windows 游戏")
+        .header_icon(
             text_block("\u{E8B7}")
                 .font_family("Segoe Fluent Icons")
-                .font_size(28.0)
-                .foreground(tokens::Accent)
-                .horizontal_alignment(HorizontalAlignment::Center)
-                .vertical_alignment(VerticalAlignment::Center)
-                .grid_column(0),
-            vstack((
-                body_strong("游戏库位置"),
-                text_block("从这些文件夹中查找 Windows 游戏")
-                    .font_size(13.0)
-                    .foreground(tokens::SecondaryText),
-            ))
-            .spacing(5.0)
-            .grid_column(1),
-            add_folder.grid_column(2),
-        ))
-        .columns([GridLength::Pixel(52.0), GridLength::STAR, GridLength::Auto])
-        .column_spacing(18.0)
-        .vertical_alignment(VerticalAlignment::Center)
-        .padding(Thickness::uniform(20.0)),
-    )
-    .background(tokens::CardBackground)
-    .border_brush(tokens::CardStroke)
-    .border_thickness(Thickness::uniform(1.0))
-    .corner_radius(8.0);
-
-    let folders_content: Element = if folders.is_empty() {
-        border(
-            vstack((
-                text_block("\u{E8B7}")
-                    .font_family("Segoe Fluent Icons")
-                    .font_size(26.0)
-                    .foreground(tokens::TertiaryText),
-                body("还没有添加文件夹"),
-                caption("添加后会自动扫描其中的 .exe 文件"),
-            ))
-            .spacing(7.0)
-            .horizontal_alignment(HorizontalAlignment::Center)
-            .padding(Thickness::uniform(28.0)),
+                .font_size(20.0)
+                .foreground(tokens::Accent),
         )
-        .background(tokens::SubtleFill)
-        .corner_radius(8.0)
-        .into()
-    } else {
-        let current_folders = folders.to_vec();
-        list_view(folders.to_vec(), move |folder, _| {
-            folder_row(
+        .content(add_folder)
+        .into();
+
+    let current_folders = folders.to_vec();
+    let folder_items = folders
+        .iter()
+        .map(|folder| {
+            folder_card(
                 folder,
                 &current_folders,
                 set_folders.clone(),
                 set_notice.clone(),
                 scan_controls.clone(),
             )
+            .into_expander_item()
         })
-        .with_key_selector(|folder| folder.clone())
-        .into()
-    };
+        .collect();
+
+    let mut folders_expander = SettingsExpander::new("已索引文件夹")
+        .description("KumoRust 会扫描这些文件夹中的 Windows 可执行文件")
+        .header_icon(
+            text_block("\u{E8B7}")
+                .font_family("Segoe Fluent Icons")
+                .font_size(20.0)
+                .foreground(tokens::Accent),
+        )
+        .items(folder_items)
+        .expanded(true);
+    if folders.is_empty() {
+        folders_expander = folders_expander.items_footer(
+            vstack((
+                body("还没有添加文件夹"),
+                caption("使用上方按钮添加后，会自动扫描其中的 .exe 文件"),
+            ))
+            .spacing(7.0)
+            .padding(Thickness::xy(58.0, 18.0)),
+        );
+    }
+    let folders_content: Element = folders_expander.into();
 
     let notice_element = info_bar(notice);
     let update_card = updates::settings_card(update_status, set_update_status);
@@ -280,8 +269,7 @@ fn settings_page(
             text_block("管理扫描位置和库内容")
                 .font_size(14.0)
                 .foreground(tokens::SecondaryText),
-            setting_card,
-            subtitle("已索引文件夹"),
+            library_card,
             folders_content,
             subtitle("应用更新"),
             update_card,
@@ -293,13 +281,13 @@ fn settings_page(
     .into()
 }
 
-fn folder_row(
+fn folder_card(
     folder: &String,
     current_folders: &[String],
     set_folders: SetState<Vec<String>>,
     set_notice: SetState<String>,
     scan_controls: ScanControls,
-) -> Element {
+) -> SettingsCard {
     let folder_for_remove = folder.clone();
     let current_folders = current_folders.to_vec();
     let delete = button("")
@@ -317,28 +305,15 @@ fn folder_row(
             );
         });
 
-    border(
-        grid((
-            text_block(folder.clone())
-                .font_size(14.0)
-                .foreground(tokens::PrimaryText)
-                .wrap()
-                .max_lines(2)
-                .grid_column(0),
-            delete.grid_column(1),
-        ))
-        .columns([GridLength::STAR, GridLength::Auto])
-        .column_spacing(12.0)
-        .padding(Thickness::xy(4.0, 12.0)),
-    )
-    .border_brush(tokens::DividerStroke)
-    .border_thickness(Thickness {
-        left: 0.0,
-        top: 0.0,
-        right: 0.0,
-        bottom: 1.0,
-    })
-    .into()
+    SettingsCard::new("索引文件夹")
+        .description(folder.clone())
+        .header_icon(
+            text_block("\u{E8B7}")
+                .font_family("Segoe Fluent Icons")
+                .font_size(18.0)
+                .foreground(tokens::SecondaryText),
+        )
+        .content(delete)
 }
 
 fn game_card(game: &GameEntry, set_notice: SetState<String>) -> Element {
