@@ -6,92 +6,94 @@ A Windows game library launcher built with the `windows-reactor` crate from
 The WinUI 3 interface uses a Mica backdrop and NavigationView. The library
 page scans configured folders recursively for `.exe` files, displays their
 icons and metadata in horizontal rows, and launches a selected game. Icons are
-extracted from PE resources with a Win32 fallback and cached under
-`%LOCALAPPDATA%\\KumoRust\\icons`.
-
-The settings page lets users add or remove indexed folders. Changes trigger an
-automatic rescan, while the library page also provides an explicit refresh
-action. Folder settings are stored under `%LOCALAPPDATA%\\KumoRust`.
+cached under `%LOCALAPPDATA%\\KumoRust\\icons` and invalidated when the file
+changes.
 
 ## Runtime model
 
 The application is framework-dependent. `build.rs` calls
-`windows_reactor_setup::as_framework_dependent()`, so the build output contains
-only the Windows App SDK bootstrap DLL and does not carry the self-contained
-runtime DLL set.
+`windows_reactor_setup::as_framework_dependent()`, which stages only the
+architecture-specific `microsoft.windowsappruntime.bootstrap.dll` beside the
+executables. The Windows App SDK framework packages are installed separately
+by `updater.exe`.
 
-The Portable package starts `kumorust-bootstrap.exe`. It first lets Velopack
-handle pending application updates, then checks for the Windows App SDK 2.4
-framework. If the framework is missing, it downloads the pinned NuGet runtime
-package, extracts the current architecture MSIX files, installs them, and
-reports progress and failure through Windows toast notifications. Finally it
-starts `kumorust.exe`, which calls `windows_reactor::bootstrap()` before its
-first window.
+`updater.exe` is the Portable package entry point. It:
 
-The runtime package is downloaded from the fixed NuGet flat-container URL for
-`2.4.0`, rather than scraping the Microsoft Learn downloads page. The Learn
-page remains useful for manual downloads, but NuGet provides a stable
-machine-readable package URL and the downloaded package is cached locally.
+- checks for Windows App SDK 2.4.0;
+- downloads the official architecture-specific installer when required;
+- reports runtime download, installation, and failure through Windows toast;
+- checks the application update manifest;
+- downloads and verifies a SHA-256 protected ZIP from GitHub Releases or R2;
+- updates both `kumorust.exe` and `updater.exe`, then starts the application.
 
-## Run
+The runtime installer is downloaded from the fixed Microsoft Learn download
+channel (`aka.ms/windowsappsdk/2.4/2.4.0/...`), not from NuGet. NuGet is useful
+for build-time packaging, but the official per-architecture installer is
+smaller and owns the correct framework package installation sequence.
+
+## Build and run
 
 Requirements:
 
 - Windows
-- Rust 1.95 or newer with the MSVC toolchain
+- Rust with the MSVC toolchain
 - Visual Studio Build Tools with the MSVC linker and Windows SDK
-- LLVM/Clang when building the ARM64 target (required by the `ring` dependency)
-- Internet access on the first run when the runtime is not installed
+- Internet access on the first run if Windows App SDK 2.4 is not installed
 
-The application and its native Windows dependencies use the MSVC ABI. LLVM/Clang
-is only a build-time requirement for `ring`'s Windows ARM64 C/assembly step; it
-is not the project's linker and is not included in releases. Install it with:
+Build the UI directly when the runtime is already installed:
 
 ```powershell
-winget install --id LLVM.LLVM --exact
+cargo run --bin kumorust
 ```
 
-Start through the bootstrap executable so the runtime check is performed:
+For a first run or a Portable deployment, build both binaries and start the updater:
 
-```text
-cargo run --bin kumorust-bootstrap
+```powershell
+cargo build --bins --locked
+.\target\debug\updater.exe
 ```
 
 ## Portable package
 
-Install the Velopack CLI (`vpk`) and the .NET 8 SDK, then run:
-
-```text
-.\package-velopack.ps1
-```
-
-The default command builds `aarch64-pc-windows-msvc` and creates a Windows
-ARM64 Portable release in `target\\velopack-releases\\`. To build x64 instead:
-
-```text
-.\package-velopack.ps1 -Target x86_64-pc-windows-msvc -Runtime win-x64
-```
-
-The script stages only `kumorust-bootstrap.exe`, `kumorust.exe`, and the
-framework-dependent Bootstrap DLL before calling `vpk pack`. It produces the
-Portable executable, the full Velopack package, and `releases.win.json` under
-`target\\velopack-releases\\`; no installer package is generated.
-
-## Update sources
-
-The default update source is the GitHub repository
-`https://github.com/kumoproject/kumorust`. The settings page uses Velopack's
-`AutoSource`, so a GitHub repository URL uses GitHub Releases and any other
-HTTP URL uses the static `HttpSource` format.
-
-For GitHub Releases, upload the generated files in `target\\velopack-releases\\` to each
-release. For Cloudflare R2, upload the same files to one directory and serve
-`releases.win.json` and its referenced packages from that directory. A source
-can be overridden for testing or for an R2 deployment with:
+Run the packaging script from the repository root:
 
 ```powershell
-$env:KUMORUST_UPDATE_SOURCE = "https://<account>.r2.dev/kumorust"
-cargo run --bin kumorust-bootstrap
+.\package.ps1
+```
+
+The default target is `aarch64-pc-windows-msvc`. To create an x64 package:
+
+```powershell
+.\package.ps1 -Target x86_64-pc-windows-msvc
+```
+
+The script writes staging files to `target\\kumorust-package\\` and creates
+the Portable ZIP plus its update manifest in `target\\kumorust-releases\\`.
+The Portable ZIP contains only `updater.exe`, `kumorust.exe`, and the framework
+bootstrap DLL; both executable icons are embedded during the build.
+
+## Update source
+
+The default source is:
+
+```text
+https://github.com/kumoproject/kumorust/releases/latest/download
+```
+
+Upload these files from `target\\kumorust-releases\\` to the same GitHub
+Release:
+
+```text
+KumoRust-win-arm64-<version>.zip
+kumorust-update-win-arm64.json
+```
+
+Use the x64 names for an x64 release. For Cloudflare R2, upload the same files
+to one HTTPS directory and set the source before starting the updater:
+
+```powershell
+$env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
+.\updater.exe
 ```
 
 The `windows-rs` dependencies are pinned to commit
