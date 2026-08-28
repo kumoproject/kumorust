@@ -1,7 +1,5 @@
 #![windows_subsystem = "windows"]
 
-mod runtime;
-
 use windows_reactor::*;
 
 fn app(_cx: &mut RenderCx) -> Element {
@@ -9,8 +7,6 @@ fn app(_cx: &mut RenderCx) -> Element {
 }
 
 fn main() -> Result<()> {
-    runtime::ensure_wasdk_runtime()?;
-    bootstrap()?;
     App::new()
         .title("KumoRust")
         .inner_size(480.0, 260.0)
