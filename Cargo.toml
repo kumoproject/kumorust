@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[profile.dist]
-inherits = "release"
-lto = "thin"
-
 [dependencies]
+png = "0.18"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
+rfd = { version = "0.17", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
 url = "2"
+velopack = "1.2.110-ge826545"
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
     "ApplicationModel",
     "Data_Xml_Dom",
@@ -27,6 +29,9 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd3
     "shobjidl_core",
     "winerror",
     "wtypes",
+    "shellapi",
+    "wingdi",
+    "winuser",
 ] }
 windows-collections = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
 windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
