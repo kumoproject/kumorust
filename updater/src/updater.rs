@@ -9,11 +9,9 @@ use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use url::Url;
-use windows::System::ProcessorArchitecture;
 use windows::UI::Notifications::{
     NotificationData, ToastNotification, ToastNotificationManager, ToastNotifier,
 };
-use windows::Win32::appmodel::GetPackagesByPackageFamily;
 use windows::Win32::combaseapi::{CoCreateInstance, CoInitializeEx};
 use windows::Win32::handleapi::CloseHandle;
 use windows::Win32::objbase::COINIT_APARTMENTTHREADED;
@@ -28,26 +26,12 @@ use windows::Win32::propsys::IPropertyStore;
 use windows::Win32::shobjidl_core::{IShellLinkW, ShellLink};
 use windows::Win32::synchapi::WaitForSingleObject;
 use windows::Win32::winbase::{WAIT_FAILED, WAIT_OBJECT_0};
-use windows::Win32::winerror::{
-    APPMODEL_ERROR_NO_PACKAGE, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_FOUND,
-};
 use windows::Win32::winnt::SYNCHRONIZE;
 use windows::Win32::winuser::{MB_ICONERROR, MB_OK, MessageBoxW};
 use windows::Win32::wtypes::{VARTYPE, VT_LPWSTR};
 use windows::Win32::wtypesbase::CLSCTX_INPROC_SERVER;
-use windows::core::{Error, HRESULT, HSTRING, Interface, PCWSTR, PWSTR, Result, WIN32_ERROR};
+use windows::core::{Error, HRESULT, HSTRING, Interface, PCWSTR, PWSTR, Result};
 
-const RUNTIME_VERSION: &str = "2.4.0";
-const RUNTIME_INSTALLER_ARM64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-arm64.exe";
-const RUNTIME_INSTALLER_X64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe";
-const RUNTIME_INSTALLER_X86_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x86.exe";
-const RUNTIME_PACKAGE_NAME: &str = "Microsoft.WindowsAppRuntime.2";
-const MAIN_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Main.2";
-const SINGLETON_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Singleton";
-const PACKAGE_PUBLISHER_ID: &str = "8wekyb3d8bbwe";
 const TOAST_APP_ID: &str = "KumoRust";
 const UPDATE_SOURCE_ENV: &str = "KUMORUST_UPDATE_SOURCE";
 const DEFAULT_UPDATE_SOURCE: &str =
@@ -65,9 +49,12 @@ const REQUIRED_UPDATE_FILES: [&str; 3] = [
 #[derive(Debug)]
 enum CommandLine {
     Ignore,
-    EnsureRuntime,
+    InstallRuntime {
+        spec_json: String,
+    },
     Update {
         wait_pid: Option<u32>,
+        app_version: String,
     },
     ApplyUpdate {
         package_directory: PathBuf,
@@ -85,6 +72,22 @@ struct UpdateManifest {
     size: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RuntimeSpec {
+    version: String,
+    architecture: String,
+    package_identities: Vec<RuntimePackageIdentity>,
+    installer_url: String,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimePackageIdentity {
+    name: String,
+    publisher_id: String,
+    minimum_version: String,
+}
+
 #[derive(Debug)]
 enum UpdateResult {
     NoUpdate,
@@ -93,39 +96,77 @@ enum UpdateResult {
 
 pub fn run() -> Result<()> {
     match parse_command_line()? {
-        CommandLine::Ignore => return Ok(()),
-        CommandLine::EnsureRuntime => {
+        CommandLine::Ignore => Ok(()),
+        CommandLine::InstallRuntime { spec_json } => {
             let instance = acquire_updater_instance()?;
             if !instance.is_single() {
                 return Err(app_error("updater 正在运行"));
             }
-            return run_runtime_setup();
+            run_runtime_install(&spec_json)
         }
         CommandLine::ApplyUpdate {
             package_directory,
             install_directory,
             parent_pid,
-        } => return run_apply_helper(&package_directory, &install_directory, parent_pid),
-        CommandLine::Update { wait_pid } => {
+        } => run_apply_helper(&package_directory, &install_directory, parent_pid),
+        CommandLine::Update {
+            wait_pid,
+            app_version,
+        } => {
             let instance = acquire_updater_instance()?;
             if !instance.is_single() {
                 return Ok(());
             }
-            return run_update(wait_pid);
+            run_update(wait_pid, &app_version)
         }
     }
 }
 
-fn run_runtime_setup() -> Result<()> {
+fn run_runtime_install(spec_json: &str) -> Result<()> {
+    let spec: RuntimeSpec = serde_json::from_str(spec_json)
+        .map_err(|error| app_error(format!("解析 runtime-spec 失败: {error}")))?;
+    let (installer_url, expected_hash) = validate_runtime_spec(&spec)?;
     initialize_com()?;
 
     let updater_path = current_executable()?;
     let mut toast = ToastReporter::new(&updater_path);
+    let cache = runtime_cache_directory(&spec)?;
+    let installer = cache.join(format!(
+        "WindowsAppRuntimeInstall-{}-{}.exe",
+        spec.version, spec.architecture
+    ));
 
-    ensure_runtime(&mut toast, false)
+    if !valid_runtime_installer(&installer, &expected_hash)? {
+        if installer.is_file() {
+            fs::remove_file(&installer)
+                .map_err(|error| io_error("删除损坏的 runtime 缓存失败", error))?;
+        }
+        toast.begin_progress(
+            &format!("Windows App SDK {}", spec.version),
+            "正在下载官方 runtime installer",
+        );
+        let client = http_client()?;
+        download_file(&client, &installer_url, &installer, None, &mut toast)?;
+        if !file_matches_hash_and_size(&installer, &expected_hash, None)? {
+            return Err(app_error("Windows App SDK installer SHA-256 校验失败"));
+        }
+    }
+
+    toast.update_progress(1.0, "下载完成，正在安装", "安装中");
+    let status = Command::new(&installer)
+        .arg("--quiet")
+        .status()
+        .map_err(|error| io_error("启动 Windows App SDK installer 失败", error))?;
+    let exit_code = status.code();
+    if !status.success() && exit_code != Some(3010) {
+        return Err(app_error(format!(
+            "Windows App SDK installer 返回状态 {status}"
+        )));
+    }
+    Ok(())
 }
 
-fn run_update(wait_pid: Option<u32>) -> Result<()> {
+fn run_update(wait_pid: Option<u32>, app_version: &str) -> Result<()> {
     initialize_com()?;
 
     let updater_path = current_executable()?;
@@ -139,13 +180,7 @@ fn run_update(wait_pid: Option<u32>) -> Result<()> {
         wait_for_process(pid)?;
     }
 
-    if let Err(error) = ensure_runtime(&mut toast, true) {
-        toast.show_message("Windows App SDK 安装失败", &format!("{error}"));
-        eprintln!("KumoRust runtime setup failed: {error}");
-        return Err(error);
-    }
-
-    match update_application(&install_directory, &mut toast) {
+    match update_application(&install_directory, &mut toast, app_version) {
         Ok(UpdateResult::HelperStarted) => Ok(()),
         Ok(UpdateResult::NoUpdate) => launch_application(&install_directory),
         Err(error) => {
@@ -186,18 +221,30 @@ where
     let mut args = arguments.into_iter();
     let mut wait_pid = None;
     let mut from_app = false;
-    let mut ensure_runtime = false;
+    let mut install_runtime = None;
+    let mut app_version = None;
     let mut apply_update = None;
 
     while let Some(argument) = args.next() {
         match argument.to_string_lossy().as_ref() {
             "--from-app" => from_app = true,
-            "--ensure-runtime" => ensure_runtime = true,
+            "--install-runtime" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| app_error("--install-runtime 缺少 runtime-spec"))?;
+                install_runtime = Some(value.to_string_lossy().into_owned());
+            }
             "--wait-pid" => {
                 let value = args
                     .next()
                     .ok_or_else(|| app_error("--wait-pid 缺少进程 ID"))?;
                 wait_pid = Some(parse_pid(&value)?);
+            }
+            "--app-version" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| app_error("--app-version 缺少版本号"))?;
+                app_version = Some(value.to_string_lossy().into_owned());
             }
             "--apply-update" => {
                 let package_directory = args
@@ -226,7 +273,7 @@ where
     }
 
     if let Some((package_directory, install_directory, parent_pid)) = apply_update {
-        if from_app || ensure_runtime || wait_pid.is_some() {
+        if from_app || install_runtime.is_some() || wait_pid.is_some() || app_version.is_some() {
             return Err(app_error("--apply-update 不能与其他 updater 参数一起使用"));
         }
         return Ok(CommandLine::ApplyUpdate {
@@ -236,18 +283,29 @@ where
         });
     }
 
-    if ensure_runtime {
+    if let Some(spec_json) = install_runtime {
         if !from_app {
-            return Err(app_error("--ensure-runtime 必须与 --from-app 一起使用"));
+            return Err(app_error("--install-runtime 必须与 --from-app 一起使用"));
         }
-        if wait_pid.is_some() {
-            return Err(app_error("--ensure-runtime 不能与 --wait-pid 一起使用"));
+        if wait_pid.is_some() || app_version.is_some() {
+            return Err(app_error(
+                "--install-runtime 不能与 --wait-pid 或 --app-version 一起使用",
+            ));
         }
-        return Ok(CommandLine::EnsureRuntime);
+        return Ok(CommandLine::InstallRuntime { spec_json });
     }
 
     if from_app {
-        Ok(CommandLine::Update { wait_pid })
+        let app_version =
+            app_version.ok_or_else(|| app_error("--from-app 应用更新缺少 --app-version"))?;
+        Ok(CommandLine::Update {
+            wait_pid,
+            app_version,
+        })
+    } else if wait_pid.is_some() || app_version.is_some() {
+        Err(app_error(
+            "--wait-pid 和 --app-version 必须与 --from-app 一起使用",
+        ))
     } else {
         Ok(CommandLine::Ignore)
     }
@@ -274,189 +332,43 @@ fn initialize_com() -> Result<()> {
     }
 }
 
-fn ensure_runtime(toast: &mut ToastReporter, announce_completion: bool) -> Result<()> {
-    if runtime_is_installed().map_err(|error| {
-        app_error(format!(
-            "检查已安装的 Windows App SDK package 失败: {error}"
-        ))
-    })? {
-        return Ok(());
+fn validate_runtime_spec(spec: &RuntimeSpec) -> Result<(Url, [u8; 32])> {
+    if !is_safe_path_component(&spec.version) {
+        return Err(app_error("runtime-spec 的版本号无效"));
     }
-
-    let cache = runtime_cache_directory()?;
-    let installer = cache.join(format!("WindowsAppRuntimeInstall-{RUNTIME_VERSION}.exe"));
-    if !valid_runtime_installer(&installer) {
-        if installer.is_file() {
-            fs::remove_file(&installer)
-                .map_err(|error| io_error("删除损坏的 runtime 缓存失败", error))?;
-        }
-        toast.begin_progress("Windows App SDK 2.4", "正在下载官方 runtime installer");
-        let client = http_client()?;
-        download_file(
-            &client,
-            &Url::parse(runtime_installer_url()?)
-                .map_err(|error| app_error(format!("runtime 下载地址无效: {error}")))?,
-            &installer,
-            None,
-            toast,
-        )?;
-    }
-
-    toast.update_progress(1.0, "下载完成，正在安装", "安装中");
-    let status = Command::new(&installer)
-        .arg("--quiet")
-        .status()
-        .map_err(|error| io_error("启动 Windows App SDK installer 失败", error))?;
-    let exit_code = status.code();
-    if !status.success() && exit_code != Some(3010) {
+    if !matches!(spec.architecture.as_str(), "x86" | "x64" | "arm64") {
         return Err(app_error(format!(
-            "Windows App SDK installer 返回状态 {status}"
+            "runtime-spec 的 architecture 不支持: {}",
+            spec.architecture
         )));
     }
-
-    if !runtime_is_installed()? {
-        return Err(app_error(
-            "Windows App SDK installer 已结束，但没有找到预期的 2.4 runtime package",
-        ));
+    if spec.package_identities.is_empty() {
+        return Err(app_error("runtime-spec 没有 package identity"));
     }
-
-    if announce_completion {
-        toast.show_message("Windows App SDK 已安装", "KumoRust 正在检查应用更新");
-    }
-    Ok(())
-}
-
-fn runtime_is_installed() -> Result<bool> {
-    let expected_architecture = expected_architecture()?;
-    let ddlm_name = ddlm_package_name()?;
-
-    let mut runtime = false;
-    let mut main = false;
-    let mut singleton = false;
-    let mut ddlm = false;
-
-    for (name, required_version, found) in [
-        (RUNTIME_PACKAGE_NAME, (2, 4, 0, 0), &mut runtime),
-        (MAIN_PACKAGE_NAME, (2, 4, 0, 0), &mut main),
-        (SINGLETON_PACKAGE_NAME, (8002, 4, 0, 0), &mut singleton),
-        (ddlm_name, (2, 4, 0, 0), &mut ddlm),
-    ] {
-        let family_name = format!("{name}_{PACKAGE_PUBLISHER_ID}");
-        *found = package_family_has_version(
-            &family_name,
-            name,
-            architecture_name(expected_architecture),
-            required_version,
-        )?;
-    }
-
-    Ok(runtime && main && singleton && ddlm)
-}
-
-fn package_family_has_version(
-    family_name: &str,
-    package_name: &str,
-    expected_architecture: &str,
-    required_version: (u16, u16, u16, u16),
-) -> Result<bool> {
-    let family_name_hstring = HSTRING::from(family_name);
-    let mut count = 0_u32;
-    let mut buffer_length = 0_u32;
-    let status = unsafe {
-        GetPackagesByPackageFamily(
-            &family_name_hstring,
-            &mut count,
-            None,
-            &mut buffer_length,
-            None,
-        )
-    };
-    if is_missing_package_status(status) {
-        return Ok(false);
-    }
-    if status != 0 && status != ERROR_INSUFFICIENT_BUFFER {
-        return Err(win32_error(
-            format!("查询 package family {family_name} 失败"),
-            status,
-        ));
-    }
-    if count == 0 {
-        return Ok(false);
-    }
-
-    let mut package_full_names = vec![PWSTR::null(); count as usize];
-    let mut buffer = vec![0_u16; buffer_length as usize];
-    let status = unsafe {
-        GetPackagesByPackageFamily(
-            &family_name_hstring,
-            &mut count,
-            Some(package_full_names.as_mut_ptr()),
-            &mut buffer_length,
-            Some(buffer.as_mut_ptr()),
-        )
-    };
-    if is_missing_package_status(status) {
-        return Ok(false);
-    }
-    if status != 0 {
-        return Err(win32_error(
-            format!("读取 package family {family_name} 失败"),
-            status,
-        ));
-    }
-
-    for package_full_name in package_full_names.into_iter().take(count as usize) {
-        if package_full_name.is_null() {
-            continue;
+    for package in &spec.package_identities {
+        if package.name.trim().is_empty() || package.publisher_id.trim().is_empty() {
+            return Err(app_error("runtime-spec 的 package identity 不完整"));
         }
-        let package_full_name = unsafe { package_full_name.to_string() }
-            .map_err(|error| app_error(format!("已安装 package 名称无效: {error}")))?;
-        if package_full_name_matches(
-            &package_full_name,
-            package_name,
-            expected_architecture,
-            required_version,
-        ) {
-            return Ok(true);
+        if parse_runtime_version(&package.minimum_version).is_none() {
+            return Err(app_error(format!(
+                "runtime-spec 的 package 最低版本无效: {}",
+                package.minimum_version
+            )));
         }
     }
 
-    Ok(false)
+    let installer_url = Url::parse(&spec.installer_url)
+        .map_err(|error| app_error(format!("runtime installer URL 无效: {error}")))?;
+    require_https_url(&installer_url, "runtime installer")?;
+    let expected_hash = parse_sha256(&spec.sha256)?;
+    Ok((installer_url, expected_hash))
 }
 
-fn is_missing_package_status(status: i32) -> bool {
-    status == APPMODEL_ERROR_NO_PACKAGE
-        || status == ERROR_FILE_NOT_FOUND
-        || status == ERROR_NOT_FOUND
-}
-
-fn package_full_name_matches(
-    full_name: &str,
-    package_name: &str,
-    expected_architecture: &str,
-    required_version: (u16, u16, u16, u16),
-) -> bool {
-    let Some(remainder) = full_name.strip_prefix(&format!("{package_name}_")) else {
-        return false;
-    };
-    let mut components = remainder.split('_');
-    let Some(version) = components.next().and_then(parse_runtime_version) else {
-        return false;
-    };
-    let Some(architecture) = components.next() else {
-        return false;
-    };
-    let Some(_resource_id) = components.next() else {
-        return false;
-    };
-    let Some(publisher_id) = components.next() else {
-        return false;
-    };
-
-    components.next().is_none()
-        && architecture == expected_architecture
-        && publisher_id == PACKAGE_PUBLISHER_ID
-        && version >= required_version
+fn is_safe_path_component(value: &str) -> bool {
+    !value.is_empty()
+        && Path::new(value)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 fn parse_runtime_version(version: &str) -> Option<(u16, u16, u16, u16)> {
@@ -470,70 +382,35 @@ fn parse_runtime_version(version: &str) -> Option<(u16, u16, u16, u16)> {
     components.next().is_none().then_some(version)
 }
 
-fn architecture_name(architecture: ProcessorArchitecture) -> &'static str {
-    match architecture {
-        ProcessorArchitecture::X86 => "x86",
-        ProcessorArchitecture::X64 => "x64",
-        ProcessorArchitecture::Arm64 => "arm64",
-        _ => "unknown",
-    }
-}
-
-fn ddlm_package_name() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86" => Ok("Microsoft.WinAppRuntime.DDLM.2.4.0.0-x8"),
-        "x86_64" => Ok("Microsoft.WinAppRuntime.DDLM.2.4.0.0-x6"),
-        "aarch64" => Ok("Microsoft.WinAppRuntime.DDLM.2.4.0.0-a6"),
-        architecture => Err(app_error(format!(
-            "不支持的 Windows App SDK architecture: {architecture}"
-        ))),
-    }
-}
-
-fn expected_architecture() -> Result<ProcessorArchitecture> {
-    match std::env::consts::ARCH {
-        "x86" => Ok(ProcessorArchitecture::X86),
-        "x86_64" => Ok(ProcessorArchitecture::X64),
-        "aarch64" => Ok(ProcessorArchitecture::Arm64),
-        architecture => Err(app_error(format!(
-            "不支持的 Windows App SDK architecture: {architecture}"
-        ))),
-    }
-}
-
-fn runtime_installer_url() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86" => Ok(RUNTIME_INSTALLER_X86_URL),
-        "x86_64" => Ok(RUNTIME_INSTALLER_X64_URL),
-        "aarch64" => Ok(RUNTIME_INSTALLER_ARM64_URL),
-        architecture => Err(app_error(format!(
-            "不支持的 Windows App SDK architecture: {architecture}"
-        ))),
-    }
-}
-
-fn valid_runtime_installer(path: &Path) -> bool {
+fn valid_runtime_installer(path: &Path, expected_hash: &[u8; 32]) -> Result<bool> {
     if fs::metadata(path)
         .map(|metadata| metadata.len() > 1_048_576)
         .unwrap_or(false)
     {
         let Ok(mut file) = File::open(path) else {
-            return false;
+            return Ok(false);
         };
         let mut header = [0_u8; 2];
-        return file.read_exact(&mut header).is_ok() && header == *b"MZ";
+        if file.read_exact(&mut header).is_err() || header != *b"MZ" {
+            return Ok(false);
+        }
+        return file_matches_hash_and_size(path, expected_hash, None);
     }
-    false
+    Ok(false)
 }
 
-fn update_application(install_directory: &Path, toast: &mut ToastReporter) -> Result<UpdateResult> {
+fn update_application(
+    install_directory: &Path,
+    toast: &mut ToastReporter,
+    app_version: &str,
+) -> Result<UpdateResult> {
     let target = update_target()?;
     let client = http_client()?;
-    let Some((manifest, package_url)) = fetch_manifest(&client, &target)? else {
+    let Some((manifest, package_url)) = fetch_manifest(&client, target)? else {
         return Ok(UpdateResult::NoUpdate);
     };
 
-    let current_version = Version::parse(env!("CARGO_PKG_VERSION"))
+    let current_version = Version::parse(app_version)
         .map_err(|error| app_error(format!("当前应用版本无效: {error}")))?;
     let remote_version = Version::parse(&manifest.version)
         .map_err(|error| app_error(format!("更新 manifest 版本无效: {error}")))?;
@@ -541,7 +418,7 @@ fn update_application(install_directory: &Path, toast: &mut ToastReporter) -> Re
         return Ok(UpdateResult::NoUpdate);
     }
 
-    let cache = update_cache_directory(&target, &manifest.version)?;
+    let cache = update_cache_directory(target, &manifest.version)?;
     let archive = cache.join(format!("KumoRust-{target}-{}.zip", manifest.version));
     toast.begin_progress(
         "KumoRust 应用更新",
@@ -679,7 +556,7 @@ fn update_target() -> Result<&'static str> {
 
 fn http_client() -> Result<Client> {
     Client::builder()
-        .user_agent(format!("KumoRust/{}/updater", env!("CARGO_PKG_VERSION")))
+        .user_agent("KumoRust-updater")
         .connect_timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| external_error("创建 HTTPS 下载客户端失败", error))
@@ -1066,10 +943,11 @@ fn current_executable() -> Result<PathBuf> {
     std::env::current_exe().map_err(|error| io_error("获取 updater.exe 路径失败", error))
 }
 
-fn runtime_cache_directory() -> Result<PathBuf> {
+fn runtime_cache_directory(spec: &RuntimeSpec) -> Result<PathBuf> {
     let directory = app_data_directory()?
         .join("WindowsAppSDK")
-        .join(RUNTIME_VERSION);
+        .join(&spec.version)
+        .join(&spec.architecture);
     fs::create_dir_all(&directory).map_err(|error| io_error("创建 runtime 缓存目录失败", error))?;
     Ok(directory)
 }
@@ -1102,10 +980,6 @@ fn io_error(context: &str, error: impl std::fmt::Display) -> Error {
 
 fn external_error(context: &str, error: impl std::fmt::Display) -> Error {
     app_error(format!("{context}: {error}"))
-}
-
-fn win32_error(context: String, status: i32) -> Error {
-    Error::new(WIN32_ERROR(status as u32).to_hresult(), context)
 }
 
 fn app_error(message: impl Into<String>) -> Error {
@@ -1327,42 +1201,45 @@ mod tests {
     }
 
     #[test]
-    fn accepts_runtime_setup_only_from_the_main_app() {
+    fn accepts_runtime_install_only_from_the_main_app() {
+        let spec = String::from(
+            r#"{"version":"2.4.0","architecture":"x64","package_identities":[{"name":"Microsoft.WindowsAppRuntime.2","publisher_id":"8wekyb3d8bbwe","minimum_version":"2.4.0.0"}],"installer_url":"https://example.com/runtime.exe","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#,
+        );
         let arguments = [
             std::ffi::OsString::from("--from-app"),
-            std::ffi::OsString::from("--ensure-runtime"),
+            std::ffi::OsString::from("--install-runtime"),
+            std::ffi::OsString::from(spec.clone()),
         ];
         assert!(matches!(
             parse_command_line_args(arguments),
-            Ok(CommandLine::EnsureRuntime)
+            Ok(CommandLine::InstallRuntime { spec_json }) if spec_json == spec
         ));
-        assert!(parse_command_line_args([std::ffi::OsString::from("--ensure-runtime")]).is_err());
+        assert!(
+            parse_command_line_args([
+                std::ffi::OsString::from("--install-runtime"),
+                std::ffi::OsString::from("{}"),
+            ])
+            .is_err()
+        );
     }
 
     #[test]
-    fn matches_current_architecture_runtime_package() {
-        assert!(package_full_name_matches(
-            "Microsoft.WindowsAppRuntime.2_2.4.0.0_arm64__8wekyb3d8bbwe",
-            RUNTIME_PACKAGE_NAME,
-            "arm64",
-            (2, 4, 0, 0),
+    fn accepts_application_update_version_from_main_app() {
+        let arguments = [
+            std::ffi::OsString::from("--from-app"),
+            std::ffi::OsString::from("--wait-pid"),
+            std::ffi::OsString::from("123"),
+            std::ffi::OsString::from("--app-version"),
+            std::ffi::OsString::from("1.2.3"),
+        ];
+        assert!(matches!(
+            parse_command_line_args(arguments),
+            Ok(CommandLine::Update {
+                wait_pid: Some(123),
+                app_version,
+            }) if app_version == "1.2.3"
         ));
-    }
-
-    #[test]
-    fn rejects_wrong_architecture_or_version() {
-        assert!(!package_full_name_matches(
-            "Microsoft.WindowsAppRuntime.2_2.3.1.0_arm64__8wekyb3d8bbwe",
-            RUNTIME_PACKAGE_NAME,
-            "arm64",
-            (2, 4, 0, 0),
-        ));
-        assert!(!package_full_name_matches(
-            "Microsoft.WindowsAppRuntime.2_2.4.0.0_x64__8wekyb3d8bbwe",
-            RUNTIME_PACKAGE_NAME,
-            "arm64",
-            (2, 4, 0, 0),
-        ));
+        assert!(parse_command_line_args([std::ffi::OsString::from("--from-app")]).is_err());
     }
 
     #[test]

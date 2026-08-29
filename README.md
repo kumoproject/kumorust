@@ -14,15 +14,18 @@ changes.
 The application is framework-dependent. `build.rs` calls
 `windows_reactor_setup::as_framework_dependent()`, which stages only the
 architecture-specific `microsoft.windowsappruntime.bootstrap.dll` beside the
-executables. The Windows App SDK framework packages are installed separately
-by `updater.exe`.
+executables. The main program owns its Windows App SDK requirement and checks
+the required package identities before calling `windows_reactor::bootstrap()`.
+If the packages are missing, it passes a complete `runtime-spec` (version,
+architecture, package identities, installer URL, and SHA-256) to `updater.exe`,
+waits for the installer to finish, and checks the packages again.
 
-`updater.exe` is the Portable package entry point. It:
+`updater.exe` is an internal helper and ignores a plain double-click. When
+called by the main program it:
 
-- checks for Windows App SDK 2.4.0;
-- downloads the official architecture-specific installer when required;
-- reports runtime download, installation, and failure through Windows toast;
-- checks the application update manifest;
+- installs the runtime described by the received `runtime-spec`;
+- downloads and verifies the runtime installer with its supplied SHA-256;
+- checks the application update manifest when explicitly requested;
 - downloads and verifies a SHA-256 protected ZIP from GitHub Releases or R2;
 - updates both `kumorust.exe` and `updater.exe`, then starts the application.
 
@@ -40,17 +43,18 @@ Requirements:
 - Visual Studio Build Tools with the MSVC linker and Windows SDK
 - Internet access on the first run if Windows App SDK 2.4 is not installed
 
-Build the UI directly when the runtime is already installed:
+Start the main program directly. It uses `updater.exe` only when the required
+runtime is missing:
 
 ```powershell
 cargo run --bin kumorust
 ```
 
-For a first run or a Portable deployment, build both binaries and start the updater:
+Build both binaries for a Portable deployment and start the main program:
 
 ```powershell
 cargo build --bins --locked
-.\target\debug\updater.exe
+.\target\debug\kumorust.exe
 ```
 
 ## Portable package

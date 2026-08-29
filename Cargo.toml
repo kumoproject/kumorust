@@ -26,11 +26,13 @@ url = "2"
 tray-icon = { version = "0.24", default-features = false }
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
     "Foundation",
+    "appmodel",
     "commctrl",
     "libloaderapi",
     "winnt",
     "shellapi",
     "wingdi",
+    "winerror",
     "winuser",
 ] }
 windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
