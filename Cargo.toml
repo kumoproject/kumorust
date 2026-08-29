@@ -39,5 +39,5 @@ windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8
 windows-reference = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
 
 [build-dependencies]
-embed-resource = "3"
+winresource = "0.1.31"
 windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }

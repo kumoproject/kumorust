@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use windows::{
@@ -11,6 +13,10 @@ fn exit_application() {
 
 fn activate_main_window() {
     crate::window::activate_main_window();
+}
+
+thread_local! {
+    static TRAY_ICON: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
 }
 
 fn enable_system_menu_theme() {
@@ -65,4 +71,12 @@ pub fn initialize() -> Option<TrayIcon> {
         .with_icon(icon)
         .build()
         .ok()
+}
+
+pub fn ensure_initialized() {
+    TRAY_ICON.with(|slot| {
+        if slot.borrow().is_none() {
+            *slot.borrow_mut() = initialize();
+        }
+    });
 }

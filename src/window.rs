@@ -5,19 +5,21 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use crate::settings::{self, CloseBehavior};
 use windows::Foundation::TypedEventHandler;
 use windows::Win32::{
-    commctrl::{DefSubclassProc, SetWindowSubclass},
+    commctrl::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
     minwindef::{LPARAM, LRESULT, WPARAM},
     windef::HWND,
     winuser::{
-        FindWindowW, PostMessageW, SW_HIDE, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_APP,
-        WM_CLOSE,
+        FindWindowW, IsWindow, PostMessageW, SW_HIDE, SW_RESTORE, SetForegroundWindow, ShowWindow,
+        WM_APP, WM_CLOSE, WM_NCDESTROY,
     },
 };
 use windows::core::{
     GUID, HRESULT, HSTRING, IInspectable_Vtbl, IUnknown, IUnknown_Vtbl, Interface, PCWSTR, Ref,
     RuntimeName, RuntimeType,
 };
-use windows_reactor::{RenderCompleteInfo, with_active_host};
+use windows_reactor::{
+    Backdrop, Element, ReactorWindow, RenderCompleteInfo, RenderCx, WindowHandle, with_active_host,
+};
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -525,11 +527,49 @@ struct CloseDialogState {
 
 thread_local! {
     static CLOSE_DIALOG: RefCell<Option<CloseDialogState>> = const { RefCell::new(None) };
+    static KEEPALIVE_WINDOW: RefCell<Option<WindowHandle>> = const { RefCell::new(None) };
 }
 
 const CLOSE_SUBCLASS_ID: usize = 0x4b;
 const SHOW_CLOSE_MESSAGE: u32 = (WM_APP + 1) as u32;
+const KEEPALIVE_WINDOW_TITLE: &str = "KumoRust.keepalive";
 pub(crate) const MAIN_WINDOW_TITLE: &str = "kumokumo";
+
+pub(crate) fn ensure_keepalive_window() {
+    if KEEPALIVE_WINDOW.with(|slot| slot.borrow().is_some()) {
+        return;
+    }
+
+    let Ok(handle) = ReactorWindow::new()
+        .title(KEEPALIVE_WINDOW_TITLE)
+        .inner_size(1.0, 1.0)
+        .render(keepalive_root)
+    else {
+        return;
+    };
+
+    KEEPALIVE_WINDOW.with(|slot| *slot.borrow_mut() = Some(handle));
+}
+
+fn keepalive_root(cx: &mut RenderCx) -> Element {
+    cx.use_effect((), hide_keepalive_window);
+    Element::Empty
+}
+
+fn hide_keepalive_window() {
+    if let Some(hwnd) = find_window(KEEPALIVE_WINDOW_TITLE) {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
+fn release_keepalive_window() {
+    let handle = KEEPALIVE_WINDOW.with(|slot| slot.borrow_mut().take());
+    if let Some(handle) = handle {
+        handle.close();
+    }
+}
 
 pub fn install_titlebar_icon_hider() {
     let _ = with_active_host(|host| {
@@ -545,54 +585,53 @@ pub fn install_titlebar_icon_hider() {
 }
 
 pub(crate) fn exit_application() {
+    release_keepalive_window();
+
     let raw = MAIN_HWND.load(Ordering::Acquire);
-    if raw != 0 {
-        let bypass = CLOSE_SUBCLASS_INSTALLED.load(Ordering::Acquire);
-        if bypass {
-            ALLOW_CLOSE.store(true, Ordering::Release);
-        }
-        unsafe {
-            let posted = PostMessageW(
-                Some(HWND(raw as *mut c_void)),
-                WM_CLOSE as u32,
-                WPARAM(0),
-                LPARAM(0),
-            )
-            .as_bool();
-            if bypass && !posted {
-                ALLOW_CLOSE.store(false, Ordering::Release);
-            }
-        }
+    if raw == 0 || !post_allowed_close(HWND(raw as *mut c_void)) {
+        std::process::exit(0);
     }
 }
 
 pub(crate) fn activate_main_window() {
     let raw = MAIN_HWND.load(Ordering::Acquire);
-    if raw == 0 {
-        return;
+    if raw != 0 {
+        let hwnd = HWND(raw as *mut c_void);
+        if unsafe { IsWindow(Some(hwnd)).as_bool() } {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+                let _ = SetForegroundWindow(hwnd);
+            }
+            return;
+        }
+        let _ = MAIN_HWND.compare_exchange(raw, 0, Ordering::AcqRel, Ordering::Acquire);
     }
 
-    let hwnd = HWND(raw as *mut c_void);
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        let _ = SetForegroundWindow(hwnd);
+    if ReactorWindow::new()
+        .title(MAIN_WINDOW_TITLE)
+        .backdrop(Backdrop::Mica)
+        .render(crate::app)
+        .is_ok()
+    {
+        // Open the replacement before closing the keepalive window, otherwise
+        // the reactor sees no windows and terminates the process.
+        release_keepalive_window();
     }
 }
 
 pub(crate) fn activate_existing_main_window() {
-    let title = MAIN_WINDOW_TITLE
-        .encode_utf16()
-        .chain([0])
-        .collect::<Vec<_>>();
-    let hwnd = unsafe { FindWindowW(None, PCWSTR::from_raw(title.as_ptr())) };
-    if hwnd.0.is_null() {
-        return;
+    if let Some(hwnd) = find_window(MAIN_WINDOW_TITLE) {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = SetForegroundWindow(hwnd);
+        }
     }
+}
 
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        let _ = SetForegroundWindow(hwnd);
-    }
+fn find_window(title: &str) -> Option<HWND> {
+    let title = title.encode_utf16().chain([0]).collect::<Vec<_>>();
+    let hwnd = unsafe { FindWindowW(None, PCWSTR::from_raw(title.as_ptr())) };
+    (!hwnd.0.is_null()).then_some(hwnd)
 }
 
 fn remember_window_hwnd(window: &impl Interface) {
@@ -639,6 +678,17 @@ unsafe extern "system" fn close_subclass_proc(
     _subclass_id: usize,
     _ref_data: usize,
 ) -> LRESULT {
+    if message == WM_NCDESTROY as u32 {
+        let _ = MAIN_HWND.compare_exchange(hwnd.0 as isize, 0, Ordering::AcqRel, Ordering::Acquire);
+        CLOSE_SUBCLASS_INSTALLED.store(false, Ordering::Release);
+        CLOSE_DIALOG_OPEN.store(false, Ordering::Release);
+        ALLOW_CLOSE.store(false, Ordering::Release);
+        unsafe {
+            let _ = RemoveWindowSubclass(hwnd, Some(close_subclass_proc), CLOSE_SUBCLASS_ID);
+            return DefSubclassProc(hwnd, message, wparam, lparam);
+        }
+    }
+
     if message == SHOW_CLOSE_MESSAGE {
         handle_close_request(hwnd);
         return LRESULT(0);
@@ -669,23 +719,25 @@ fn handle_close_request(hwnd: HWND) {
 
 fn apply_close_behavior(hwnd: HWND, behavior: CloseBehavior) {
     match behavior {
-        CloseBehavior::Exit => {
-            let bypass = CLOSE_SUBCLASS_INSTALLED.load(Ordering::Acquire);
-            if bypass {
-                ALLOW_CLOSE.store(true, Ordering::Release);
-            }
-            unsafe {
-                let posted =
-                    PostMessageW(Some(hwnd), WM_CLOSE as u32, WPARAM(0), LPARAM(0)).as_bool();
-                if bypass && !posted {
-                    ALLOW_CLOSE.store(false, Ordering::Release);
-                }
-            }
+        CloseBehavior::Exit => exit_application(),
+        CloseBehavior::Close => {
+            let _ = post_allowed_close(hwnd);
         }
-        CloseBehavior::Hide => unsafe {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        },
     }
+}
+
+fn post_allowed_close(hwnd: HWND) -> bool {
+    let bypass = CLOSE_SUBCLASS_INSTALLED.load(Ordering::Acquire);
+    if bypass {
+        ALLOW_CLOSE.store(true, Ordering::Release);
+    }
+
+    let posted =
+        unsafe { PostMessageW(Some(hwnd), WM_CLOSE as u32, WPARAM(0), LPARAM(0)).as_bool() };
+    if bypass && !posted {
+        ALLOW_CLOSE.store(false, Ordering::Release);
+    }
+    posted
 }
 
 fn show_close_confirmation(hwnd: HWND) -> windows::core::Result<()> {
@@ -734,7 +786,7 @@ fn show_close_confirmation(hwnd: HWND) -> windows::core::Result<()> {
 
         let behavior = match result {
             1 => Some(CloseBehavior::Exit),
-            2 => Some(CloseBehavior::Hide),
+            2 => Some(CloseBehavior::Close),
             _ => None,
         };
         if let Some(behavior) = behavior {

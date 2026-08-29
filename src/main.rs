@@ -83,14 +83,15 @@ impl ScanControls {
     }
 }
 
-fn app(cx: &mut RenderCx) -> Element {
-    let _tray = cx.use_memo((), tray::initialize);
+pub(crate) fn app(cx: &mut RenderCx) -> Element {
     let (page, set_page) = cx.use_state(String::from("library"));
     let (folders, set_folders) = cx.use_state(settings::load_library_folders());
     let (games, set_games) = cx.use_async_state(Vec::<GameEntry>::new());
     let (scan_status, set_scan_status) = cx.use_async_state(ScanStatus::Idle);
     let (update_status, set_update_status) = cx.use_async_state(UpdateStatus::Idle);
     let (notice, set_notice) = cx.use_state(String::new());
+    cx.use_effect((), tray::ensure_initialized);
+    cx.use_effect((), window::ensure_keepalive_window);
     cx.use_effect((), window::install_titlebar_icon_hider);
     let generation = cx.use_memo((), || Arc::new(AtomicU64::new(0)));
 

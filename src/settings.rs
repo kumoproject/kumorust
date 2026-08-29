@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum CloseBehavior {
     Exit,
-    Hide,
+    #[serde(alias = "hide")]
+    Close,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

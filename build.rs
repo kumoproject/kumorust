@@ -6,7 +6,10 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/app.rc");
     println!("cargo:rerun-if-changed=assets/app.ico");
-    embed_resource::compile_for("assets/app.rc", ["kumorust"], embed_resource::NONE)
-        .manifest_optional()
-        .unwrap();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        winresource::WindowsResource::new()
+            .set_resource_file("assets/app.rc")
+            .compile()
+            .unwrap();
+    }
 }
