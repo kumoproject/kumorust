@@ -114,7 +114,7 @@ fn collect_executables(
             if seen.insert(key) {
                 candidates.push(canonical);
             }
-            if *inspected % 32 == 0 {
+            if inspected.is_multiple_of(32) {
                 report(*inspected, candidates.len());
             }
         }

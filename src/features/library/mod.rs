@@ -1,4 +1,4 @@
 mod game_card;
 mod page;
 
-pub use page::{library_page, refresh_button};
+pub use page::library_page;

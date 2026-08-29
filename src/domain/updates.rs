@@ -1,6 +1,8 @@
+use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::components::icon_content;
 use crate::ui::settings_controls::SettingsCard;
 use serde::Serialize;
 use windows::Win32::appmodel::GetPackagesByPackageFamily;
@@ -8,9 +10,7 @@ use windows::Win32::winerror::{
     APPMODEL_ERROR_NO_PACKAGE, ERROR_FILE_NOT_FOUND, ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_FOUND,
 };
 use windows::core::{Error, HRESULT, HSTRING, PWSTR, WIN32_ERROR};
-use windows_reactor::{
-    AsyncSetState, Button, Element, Symbol, TextStyleExt, button, text_block, tokens,
-};
+use windows_reactor::*;
 
 const RUNTIME_VERSION: &str = env!("KUMORUST_WASDK_VERSION");
 const RUNTIME_PACKAGE_NAME: &str = "Microsoft.WindowsAppRuntime.2";
@@ -300,31 +300,28 @@ pub enum UpdateStatus {
     Error(String),
 }
 
-pub fn start_update(status: AsyncSetState<UpdateStatus>) {
-    status.call(UpdateStatus::Starting);
+/// Launches the standalone updater with `--wait-pid`; the caller exits after
+/// a successful spawn because the updater restarts the app itself.
+pub fn start_update() -> io::Result<()> {
+    let updater = updater_path()
+        .map_err(|error| io::Error::other(error.to_string()))?
+        .ok_or_else(|| io::Error::other("找不到更新器"))?;
 
-    let result = (|| {
-        let updater = updater_path()
-            .map_err(|error| std::io::Error::other(error.to_string()))?
-            .ok_or_else(|| std::io::Error::other("找不到更新器"))?;
-
-        Command::new(updater)
-            .arg("--from-app")
-            .arg("--wait-pid")
-            .arg(std::process::id().to_string())
-            .arg("--app-version")
-            .arg(env!("CARGO_PKG_VERSION"))
-            .spawn()?;
-        Ok::<(), std::io::Error>(())
-    })();
-
-    match result {
-        Ok(()) => std::process::exit(0),
-        Err(error) => status.call(UpdateStatus::Error(format!("无法启动更新器：{error}"))),
-    }
+    Command::new(updater)
+        .arg("--from-app")
+        .arg("--wait-pid")
+        .arg(std::process::id().to_string())
+        .arg("--app-version")
+        .arg(env!("CARGO_PKG_VERSION"))
+        .spawn()?;
+    Ok(())
 }
 
-pub fn settings_card(status: &UpdateStatus, set_status: AsyncSetState<UpdateStatus>) -> Element {
+/// Settings card that shows the update status and the check-for-updates action.
+///
+/// `on_update` is wired by the caller to dispatch `Msg::CheckUpdate`; the card
+/// itself stays free of app-specific types.
+pub fn settings_card(status: &UpdateStatus, on_update: impl Fn() + 'static) -> View {
     let (status_heading, status_message): (String, String) = match status {
         UpdateStatus::Idle => (
             "保持最新版本".to_string(),
@@ -337,21 +334,18 @@ pub fn settings_card(status: &UpdateStatus, set_status: AsyncSetState<UpdateStat
         UpdateStatus::Error(message) => ("更新器启动失败".to_string(), message.clone()),
     };
     let busy = matches!(status, UpdateStatus::Starting);
-    let action: Button = button(if busy { "启动中" } else { "检查并更新" })
-        .icon(Symbol::Refresh)
-        .subtle()
-        .enabled(!busy)
-        .on_click(move || start_update(set_status.clone()));
+    let action = Button::new()
+        .style(ButtonStyle::Subtle)
+        .is_enabled(!busy)
+        .on_click(on_update)
+        .content(icon_content(
+            Symbol::Refresh,
+            if busy { "启动中" } else { "检查并更新" },
+        ));
 
     SettingsCard::new(status_heading)
         .description(status_message)
-        .header_icon(
-            text_block("\u{E895}")
-                .font_family("Segoe Fluent Icons")
-                .font_size(20.0)
-                .foreground(tokens::Accent),
-        )
+        .header_icon(SymbolIcon::new().symbol(Symbol::Sync))
         .content(action)
         .into()
 }
-

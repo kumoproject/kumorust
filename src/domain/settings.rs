@@ -4,20 +4,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloseBehavior {
-    Exit,
-    #[serde(alias = "hide")]
-    Close,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct SettingsFile {
     #[serde(default)]
     library_folders: Vec<String>,
-    #[serde(default)]
-    close_behavior: Option<CloseBehavior>,
 }
 
 pub fn app_data_directory() -> PathBuf {
@@ -37,16 +27,6 @@ fn settings_path() -> PathBuf {
 
 pub fn load_library_folders() -> Vec<String> {
     deduplicate_folders(load_settings().library_folders)
-}
-
-pub fn load_close_behavior() -> Option<CloseBehavior> {
-    load_settings().close_behavior
-}
-
-pub fn save_close_behavior(behavior: CloseBehavior) -> io::Result<()> {
-    let mut settings = load_settings();
-    settings.close_behavior = Some(behavior);
-    save_settings(&settings)
 }
 
 pub fn save_library_folders(folders: &[String]) -> io::Result<()> {

@@ -24,20 +24,20 @@ sha2 = "0.11"
 single-instance = "0.3.3"
 url = "2"
 tray-icon = { version = "0.24", default-features = false }
-windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
+windows = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd", features = [
     "Foundation",
     "appmodel",
-    "commctrl",
     "libloaderapi",
-    "winnt",
     "shellapi",
     "wingdi",
+    "winnt",
     "winerror",
     "winuser",
 ] }
-windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
-windows-reference = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
+windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd" }
+windows-reference = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd" }
 
 [build-dependencies]
 winresource = "0.1.31"
-windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
+windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd" }
+

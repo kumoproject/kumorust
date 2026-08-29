@@ -101,4 +101,5 @@ $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
 ```
 
 The `windows-rs` dependencies are pinned to commit
-`79d8db43bbd38167941416cea2004dd3067e785a`.
+`a8a5d720331920100326c89044f950b703a5b4cd`.
+

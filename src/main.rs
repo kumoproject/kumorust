@@ -9,14 +9,15 @@ mod ui;
 
 use single_instance::SingleInstance;
 use windows::core::{Error, HRESULT};
-use windows_reactor::*;
+use windows_reactor::App;
 
+use crate::app::KumoApp;
 use crate::domain::updates;
 use crate::platform::window;
 
 const MAIN_INSTANCE_NAME: &str = "KumoRust.main";
 
-fn main() -> Result<()> {
+fn main() -> windows::core::Result<()> {
     let instance = SingleInstance::new(MAIN_INSTANCE_NAME)
         .map_err(|error| Error::new(HRESULT(0x8000_4005_u32 as i32), error.to_string()))?;
     if !instance.is_single() {
@@ -25,9 +26,5 @@ fn main() -> Result<()> {
     }
 
     updates::ensure_runtime()?;
-    windows_reactor::bootstrap()?;
-    App::new()
-        .title(window::MAIN_WINDOW_TITLE)
-        .backdrop(Backdrop::Mica)
-        .render(app::app)
+    App::run_component::<KumoApp>(())
 }

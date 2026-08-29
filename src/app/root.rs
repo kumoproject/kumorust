@@ -1,84 +1,95 @@
-use std::sync::{Arc, atomic::AtomicU64};
-
 use windows_reactor::*;
 
-use crate::app::{ScanControls, ScanStatus};
-use crate::domain::library::GameEntry;
+use crate::app::model::AppState;
+use crate::app::{Effect, Msg, Page, scan, store, update};
 use crate::domain::settings;
-use crate::domain::updates::UpdateStatus;
-use crate::features::library::{library_page, refresh_button};
-use crate::features::settings::{add_folder_button, settings_page};
+use crate::features::library::library_page;
+use crate::features::settings::settings_page;
 use crate::platform::{tray, window};
 
-pub fn app(cx: &mut RenderCx) -> Element {
-    let (page, set_page) = cx.use_state(String::from("library"));
-    let (folders, set_folders) = cx.use_state(settings::load_library_folders());
-    let (games, set_games) = cx.use_async_state(Vec::<GameEntry>::new());
-    let (scan_status, set_scan_status) = cx.use_async_state(ScanStatus::Idle);
-    let (update_status, set_update_status) = cx.use_async_state(UpdateStatus::Idle);
-    let (notice, set_notice) = cx.use_state(String::new());
-    cx.use_effect((), tray::ensure_initialized);
-    cx.use_effect((), window::ensure_keepalive_window);
-    cx.use_effect((), window::install_titlebar_icon_hider);
-    let generation = cx.use_memo((), || Arc::new(AtomicU64::new(0)));
-
-    let scan_controls = ScanControls {
-        games: set_games.clone(),
-        status: set_scan_status.clone(),
-        generation,
-    };
-
-    let initial_folders = folders.clone();
-    let initial_scan = scan_controls.clone();
-    cx.use_effect((), move || initial_scan.start(initial_folders));
-
-    let add_folder = add_folder_button(
-        folders.clone(),
-        set_folders.clone(),
-        set_notice.clone(),
-        scan_controls.clone(),
-    );
-    let refresh = refresh_button(folders.clone(), set_notice.clone(), scan_controls.clone());
-
-    let content = if page == "settings" {
-        settings_page(
-            &folders,
-            add_folder,
-            set_folders.clone(),
-            set_notice.clone(),
-            scan_controls.clone(),
-            &notice,
-            &update_status,
-            set_update_status.clone(),
-        )
-    } else {
-        library_page(
-            &games,
-            &folders,
-            &scan_status,
-            refresh,
-            add_folder.subtle(),
-            set_page.clone(),
-            set_notice.clone(),
-            &notice,
-        )
-    };
-
-    NavigationView::new(
-        [
-            NavViewItem::new("库").tag("library").icon(Symbol::Library),
-            NavViewItem::new("设置")
-                .tag("settings")
-                .icon(Symbol::Setting),
-        ],
-        content,
-    )
-    .selected_tag(page)
-    .on_selection_changed(set_page)
-    .pane_display_mode(NavigationViewPaneDisplayMode::Left)
-    .pane_open(false)
-    .settings_visible(false)
-    .back_button_visible(false)
-    .into()
+/// The root MVU component.
+///
+/// It owns the model, reduces messages through the pure reducer and renders
+/// the current state through pure view functions. This is the counterpart of
+/// the `Component` in the reference architecture: `create` initializes the
+/// model, `update` reduces messages, `view` renders the model.
+pub struct KumoApp {
+    model: AppState,
 }
 
+impl Component for KumoApp {
+    type Message = Msg;
+    type Input = ();
+
+    fn create(_input: &(), context: &ComponentContext<Self>) -> Self {
+        tray::ensure_initialized();
+
+        // Bootstrap: scan the configured folders exactly once at startup.
+        let mut model = AppState::new(settings::load_library_folders());
+        if let Effect::Scan { generation, folders } =
+            update::update(&mut model, Msg::RefreshLibrary)
+        {
+            context.spawn_background(move |_token| scan::scan_message(generation, &folders));
+        }
+        Self { model }
+    }
+
+    fn update(&mut self, message: Msg, context: &ComponentContext<Self>) {
+        let effect = update::update(&mut self.model, message);
+        store::perform(effect, context);
+    }
+
+    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
+        view(&self.model, context)
+    }
+}
+
+/// Pure view: renders the model and wires every interaction to a message.
+pub fn view(model: &AppState, context: &mut ViewContext<KumoApp>) -> View {
+    context.window_title(window::MAIN_WINDOW_TITLE);
+    context.window_visuals(
+        WindowVisuals::new()
+            .backdrop(WindowBackdrop::Mica)
+            .client_size(1080.0, 720.0),
+    );
+
+    let menu_items = [
+        ("library", "库", Symbol::Library),
+        ("settings", "设置", Symbol::Setting),
+    ]
+    .into_iter()
+    .map(|(tag, label, symbol)| {
+        KeyedView::new(
+            tag,
+            NavigationViewItem::new()
+                .tag(tag)
+                .is_selected(model.page.tag() == tag)
+                .slots([
+                    SlotView::new(NavigationViewItemSlot::Content, label),
+                    SlotView::new(
+                        NavigationViewItemSlot::Icon,
+                        SymbolIcon::new().symbol(symbol),
+                    ),
+                ]),
+        )
+    });
+
+    let content = if model.page == Page::Settings {
+        settings_page(model, context)
+    } else {
+        library_page(model, context)
+    };
+
+    NavigationView::new()
+        .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+        .is_pane_open(model.pane_open)
+        .on_is_pane_open_changed(context.callback(Msg::PaneOpenChanged))
+        .is_settings_visible(false)
+        .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
+        .pane_title("KumoRust")
+        .on_selected_tag_changed(context.callback(Msg::NavigateTag))
+        .slots([
+            SlotView::collection(NavigationViewSlot::MenuItems, menu_items),
+            SlotView::new(NavigationViewSlot::Content, content),
+        ])
+}
