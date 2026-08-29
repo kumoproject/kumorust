@@ -1,6 +1,6 @@
 use windows_reactor::*;
 
-use crate::components::TEXT_SECONDARY;
+use crate::ui::tokens::TEXT_SECONDARY;
 
 /// The card surface variants: standalone, expander header, expander item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

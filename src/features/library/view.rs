@@ -1,12 +1,27 @@
 use windows_reactor::*;
 
-use crate::app::{AppState, KumoApp, Msg, Page, ScanStatus, scan_status_text};
-use crate::components::{TEXT_SECONDARY, body, icon_content, info_bar, subtitle, title, vstack};
-use crate::features::settings::add_folder_button;
-use super::game_card::game_card;
+use crate::app::{AppMessage, KumoApp, Route};
+use crate::core::i18n::{fmt1, fmt2, fmt3, tr};
+use crate::features::library::{LibraryMessage, LibraryModel, ScanStatus};
+use crate::features::library::components::game_card;
+use crate::features::settings::SettingsMessage;
+use crate::ui::buttons::icon_content;
+use crate::ui::format::format_epoch_age;
+use crate::ui::info_bar::info_bar;
+use crate::ui::layout::vstack;
+use crate::ui::tokens::{TEXT_SECONDARY, body, subtitle, title};
 
-/// The library page: header, notice, and the game list (or an empty state).
-pub fn library_page(model: &AppState, cx: &ViewContext<KumoApp>) -> View {
+/// Renders the library page from the library model.
+///
+/// `folders_empty` is provided by the root app from the settings slice; the
+/// library page never reads foreign state itself. Every interaction is emitted
+/// as a `LibraryMessage` wrapped in the root `AppMessage`.
+pub fn view(
+    model: &LibraryModel,
+    notice: &str,
+    folders_empty: bool,
+    cx: &ViewContext<KumoApp>,
+) -> View {
     let status_line = scan_status_text(&model.scan);
     let header = Grid::new()
         .rows([GridLength::Auto, GridLength::Auto])
@@ -19,7 +34,7 @@ pub fn library_page(model: &AppState, cx: &ViewContext<KumoApp>) -> View {
         .column_spacing(10.0)
         .vertical_alignment(VerticalAlignment::Center)
         .children((
-            title("库").grid_column(0),
+            title(tr("nav.library")).grid_column(0),
             TextBlock::new()
                 .text(status_line)
                 .font_size(13.0)
@@ -27,7 +42,7 @@ pub fn library_page(model: &AppState, cx: &ViewContext<KumoApp>) -> View {
                 .grid_column(0)
                 .grid_row(1),
             TextBlock::new()
-                .text(format!("{} 个游戏", model.games.len()))
+                .text(fmt1("library.game_count", model.games.len()))
                 .font_size(14.0)
                 .foreground(TEXT_SECONDARY)
                 .horizontal_alignment(HorizontalAlignment::Right)
@@ -41,15 +56,17 @@ pub fn library_page(model: &AppState, cx: &ViewContext<KumoApp>) -> View {
             Border::new()
                 .grid_column(3)
                 .grid_row_span(2)
-                .content(add_folder_button(cx, false)),
+                .content(add_folder_button(cx)),
         ));
 
     let body: View = if model.games.is_empty() {
-        empty_library_state(&model.folders, &model.scan, cx)
+        empty_library_state(&model.scan, folders_empty, cx)
     } else {
         ListView::new()
-            .selected_index(model.selected_game)
-            .on_selection_changed(cx.callback(Msg::SelectGame))
+            .selected_index(model.selected)
+            .on_selection_changed(cx.callback(|index| {
+                AppMessage::Library(LibraryMessage::Select(index))
+            }))
             .collection_slot(ListViewSlot::Items, model.games.iter().map(|game| {
                 KeyedView::new(
                     game.path.clone(),
@@ -60,21 +77,33 @@ pub fn library_page(model: &AppState, cx: &ViewContext<KumoApp>) -> View {
             }))
     };
 
-    ScrollViewer::new().content(vstack((header, info_bar(&model.notice), body)))
+    ScrollViewer::new().content(vstack((header, info_bar(notice), body)))
 }
 
 /// The empty library placeholder, with guidance or a scan progress ring.
 fn empty_library_state(
-    folders: &[String],
     scan_status: &ScanStatus,
+    folders_empty: bool,
     cx: &ViewContext<KumoApp>,
 ) -> View {
-    let (glyph, heading, message) = if folders.is_empty() {
-        ("\u{E8B7}", "还没有游戏库", "前往设置添加一个索引文件夹")
+    let (glyph, heading, message) = if folders_empty {
+        (
+            "\u{E8B7}",
+            tr("library.empty.no_folders.heading"),
+            tr("library.empty.no_folders.body"),
+        )
     } else if matches!(scan_status, ScanStatus::Scanning { .. }) {
-        ("\u{E895}", "正在扫描游戏", "扫描完成后会显示可启动的 .exe")
+        (
+            "\u{E895}",
+            tr("library.empty.scanning.heading"),
+            tr("library.empty.scanning.body"),
+        )
     } else {
-        ("\u{E7FC}", "没有找到游戏", "当前索引文件夹中没有可用的 .exe")
+        (
+            "\u{E7FC}",
+            tr("library.empty.no_games.heading"),
+            tr("library.empty.no_games.body"),
+        )
     };
 
     let mut content: Vec<View> = Vec::new();
@@ -120,11 +149,11 @@ fn empty_library_state(
                 ),
         );
 
-    if folders.is_empty() {
+    if folders_empty {
         let open_settings = Button::new()
             .style(ButtonStyle::Subtle)
-            .on_click(cx.message(Msg::Navigate(Page::Settings)))
-            .content(icon_content(Symbol::Setting, "打开设置"));
+            .on_click(cx.message(AppMessage::RouteChanged(Route::Settings)))
+            .content(icon_content(Symbol::Setting, tr("library.open_settings")));
         return Border::new()
             .background(ThemeBrush::SolidBackground)
             .corner_radius(8.0)
@@ -143,10 +172,42 @@ fn empty_library_state(
 }
 
 /// Header button that restarts the library scan.
-pub fn refresh_button(cx: &ViewContext<KumoApp>) -> View {
+fn refresh_button(cx: &ViewContext<KumoApp>) -> View {
     Button::new()
         .style(ButtonStyle::Subtle)
-        .on_click(cx.message(Msg::RefreshLibrary))
-        .content(icon_content(Symbol::Refresh, "刷新"))
-        .tooltip("重新扫描游戏库")
+        .on_click(cx.message(AppMessage::Library(LibraryMessage::Refresh)))
+        .content(icon_content(Symbol::Refresh, tr("library.refresh")))
+        .tooltip(tr("library.refresh.tooltip"))
+}
+
+/// Subtle add-folder button that routes to the settings slice via the root.
+fn add_folder_button(cx: &ViewContext<KumoApp>) -> View {
+    Button::new()
+        .style(ButtonStyle::Subtle)
+        .on_click(cx.message(AppMessage::Settings(SettingsMessage::AddFolder)))
+        .content(icon_content(Symbol::Add, tr("settings.add_folder")))
+}
+
+/// Human-readable scan status line for the library header.
+fn scan_status_text(status: &ScanStatus) -> String {
+    match status {
+        ScanStatus::Idle => tr("library.scan.idle").to_string(),
+        ScanStatus::Scanning { inspected, found } => {
+            if *inspected == 0 && *found == 0 {
+                tr("library.scan.running").to_string()
+            } else {
+                fmt2("library.scan.progress", inspected, found)
+            }
+        }
+        ScanStatus::Complete {
+            inspected,
+            found,
+            finished_at,
+        } => fmt3(
+            "library.scan.done",
+            found,
+            inspected,
+            format_epoch_age(*finished_at),
+        ),
+    }
 }

@@ -1,5 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::core::i18n::{fmt1, tr};
+
 pub fn format_size(size: u64) -> String {
     if size >= 1_073_741_824 {
         format!("{:.1} GB", size as f64 / 1_073_741_824.0)
@@ -27,13 +29,13 @@ pub fn format_epoch_age(time: u64) -> String {
 
 fn format_duration_age(seconds: u64) -> String {
     if seconds < 60 {
-        String::from("刚刚")
+        tr("time.just_now").to_string()
     } else if seconds < 3600 {
-        format!("{} 分钟前", seconds / 60)
+        fmt1("time.minutes_ago", seconds / 60)
     } else if seconds < 86_400 {
-        format!("{} 小时前", seconds / 3600)
+        fmt1("time.hours_ago", seconds / 3600)
     } else {
-        format!("{} 天前", seconds / 86_400)
+        fmt1("time.days_ago", seconds / 86_400)
     }
 }
 

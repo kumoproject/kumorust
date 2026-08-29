@@ -1,8 +1,12 @@
 use windows_reactor::*;
 
-use crate::app::{KumoApp, Msg};
-use crate::components::{TEXT_SECONDARY, TEXT_TERTIARY, format_age, format_size, icon_content};
-use crate::domain::library::GameEntry;
+use crate::app::{AppMessage, KumoApp};
+use crate::core::i18n::tr;
+use crate::domain::folder::GameEntry;
+use crate::features::library::LibraryMessage;
+use crate::ui::buttons::icon_content;
+use crate::ui::format::{format_age, format_size};
+use crate::ui::tokens::{TEXT_SECONDARY, TEXT_TERTIARY};
 
 /// A single game row: icon, metadata, and a launch button.
 pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
@@ -39,7 +43,7 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
                 .max_lines(1)
                 .text_trimming(TextTrimming::CharacterEllipsis),
             TextBlock::new()
-                .text("Windows 游戏")
+                .text(tr("library.game_type"))
                 .font_size(13.0)
                 .foreground(TEXT_SECONDARY),
             TextBlock::new()
@@ -59,10 +63,13 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
     let directory = game.directory.clone();
     let launch = Button::new()
         .style(ButtonStyle::Accent)
-        .on_click(cx.message(Msg::LaunchGame { path, directory }))
+        .on_click(cx.message(AppMessage::Library(LibraryMessage::Launch {
+            path,
+            directory,
+        })))
         .grid_column(2)
         .vertical_alignment(VerticalAlignment::Center)
-        .content(icon_content(Symbol::Play, "启动"));
+        .content(icon_content(Symbol::Play, tr("library.launch")));
 
     Border::new()
         .height(118.0)

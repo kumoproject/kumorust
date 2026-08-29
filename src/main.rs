@@ -1,10 +1,11 @@
 // #![windows_subsystem = "windows"]
 
 mod app;
-mod components;
+mod core;
 mod domain;
 mod features;
 mod platform;
+mod services;
 mod ui;
 
 use single_instance::SingleInstance;
@@ -12,8 +13,8 @@ use windows::core::{Error, HRESULT};
 use windows_reactor::App;
 
 use crate::app::KumoApp;
-use crate::domain::updates;
 use crate::platform::window;
+use crate::services::updater;
 
 const MAIN_INSTANCE_NAME: &str = "KumoRust.main";
 
@@ -25,6 +26,6 @@ fn main() -> windows::core::Result<()> {
         return Ok(());
     }
 
-    updates::ensure_runtime()?;
+    updater::ensure_runtime()?;
     App::run_component::<KumoApp>(())
 }

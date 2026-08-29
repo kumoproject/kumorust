@@ -1,30 +1,22 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::domain::icon_extractor;
-use crate::domain::settings;
+use crate::core::config;
+use crate::core::i18n::tr;
+use crate::domain::folder::GameEntry;
+use crate::services::icon_extractor;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct GameEntry {
-    pub path: String,
-    pub name: String,
-    pub directory: String,
-    pub size: u64,
-    pub modified: SystemTime,
-    pub icon_uri: Option<String>,
-}
-
-#[derive(Debug)]
 pub struct ScanOutput {
     pub games: Vec<GameEntry>,
     pub inspected: usize,
 }
 
+/// Walks every indexed folder and collects launchable `.exe` files.
 pub fn scan_folders(folders: &[String], report: impl Fn(usize, usize)) -> ScanOutput {
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
@@ -56,7 +48,7 @@ pub fn scan_folders(folders: &[String], report: impl Fn(usize, usize)) -> ScanOu
             .or_else(|| path.file_name())
             .map(|name| name.to_string_lossy().into_owned())
             .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| String::from("未知游戏"));
+            .unwrap_or_else(|| tr("library.unknown_game").to_string());
         let directory = path
             .parent()
             .map(|parent| parent.to_string_lossy().into_owned())
@@ -122,7 +114,7 @@ fn collect_executables(
 }
 
 fn cached_icon_uri(path: &Path, metadata: &fs::Metadata) -> Option<String> {
-    let cache_directory = settings::icon_cache_directory();
+    let cache_directory = config::icon_cache_directory();
     fs::create_dir_all(&cache_directory).ok()?;
 
     let mut hasher = Sha256::new();
@@ -197,4 +189,3 @@ mod tests {
         directory
     }
 }
-
