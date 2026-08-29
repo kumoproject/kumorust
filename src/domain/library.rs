@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::icon_extractor;
-use crate::settings;
+use crate::domain::icon_extractor;
+use crate::domain::settings;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameEntry {
@@ -197,3 +197,4 @@ mod tests {
         directory
     }
 }
+

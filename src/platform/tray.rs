@@ -8,11 +8,11 @@ use windows::{
 };
 
 fn exit_application() {
-    crate::window::exit_application();
+    crate::platform::window::exit_application();
 }
 
 fn activate_main_window() {
-    crate::window::activate_main_window();
+    crate::platform::window::activate_main_window();
 }
 
 thread_local! {
@@ -80,3 +80,4 @@ pub fn ensure_initialized() {
         }
     });
 }
+

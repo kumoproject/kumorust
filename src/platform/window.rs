@@ -2,7 +2,7 @@ use core::ffi::c_void;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
-use crate::settings::{self, CloseBehavior};
+use crate::domain::settings::{self, CloseBehavior};
 use windows::Foundation::TypedEventHandler;
 use windows::Win32::{
     commctrl::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
@@ -610,7 +610,7 @@ pub(crate) fn activate_main_window() {
     if ReactorWindow::new()
         .title(MAIN_WINDOW_TITLE)
         .backdrop(Backdrop::Mica)
-        .render(crate::app)
+        .render(crate::app::app)
         .is_ok()
     {
         // Open the replacement before closing the keepalive window, otherwise
@@ -834,3 +834,4 @@ fn hide_titlebar_icon(window: &impl Interface) {
 
     let _ = result;
 }
+

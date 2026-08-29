@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::settings_controls::SettingsCard;
+use crate::ui::settings_controls::SettingsCard;
 use serde::Serialize;
 use windows::Win32::appmodel::GetPackagesByPackageFamily;
 use windows::Win32::winerror::{
@@ -354,3 +354,4 @@ pub fn settings_card(status: &UpdateStatus, set_status: AsyncSetState<UpdateStat
         .content(action)
         .into()
 }
+
