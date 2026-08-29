@@ -687,9 +687,7 @@ dependencies = [
  "embed-resource",
  "icoextract_rs",
  "image",
- "reqwest",
  "rfd",
- "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -700,6 +698,21 @@ dependencies = [
  "windows-reactor",
  "windows-reactor-setup",
  "windows-reference",
+]
+
+[[package]]
+name = "kumorust-updater"
+version = "0.1.0"
+dependencies = [
+ "embed-resource",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "single-instance",
+ "url",
+ "windows",
  "zip",
 ]
 

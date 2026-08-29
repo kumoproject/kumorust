@@ -1,0 +1,45 @@
+[package]
+name = "kumorust-updater"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "updater"
+path = "src/main.rs"
+
+[dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+single-instance = "0.3.3"
+url = "2"
+windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
+    "ApplicationModel",
+    "Data_Xml_Dom",
+    "Foundation",
+    "System",
+    "UI_Notifications",
+    "appmodel",
+    "combaseapi",
+    "objidl",
+    "objbase",
+    "propidlbase",
+    "propkey",
+    "shobjidl_core",
+    "winerror",
+    "handleapi",
+    "processthreadsapi",
+    "synchapi",
+    "winbase",
+    "winnt",
+    "wtypes",
+    "wtypesbase",
+    "winuser",
+] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
+[build-dependencies]
+embed-resource = "3"

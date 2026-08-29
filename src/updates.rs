@@ -10,7 +10,9 @@ use windows_reactor::{
 const RUNTIME_SETUP_ARGUMENTS: [&str; 2] = ["--from-app", "--ensure-runtime"];
 
 pub fn ensure_runtime() -> windows::core::Result<()> {
-    let updater = updater_path()?;
+    let Some(updater) = updater_path()? else {
+        return Ok(());
+    };
     let status = Command::new(&updater)
         .args(RUNTIME_SETUP_ARGUMENTS)
         .status()
@@ -24,7 +26,7 @@ pub fn ensure_runtime() -> windows::core::Result<()> {
     }
 }
 
-fn updater_path() -> windows::core::Result<PathBuf> {
+fn updater_path() -> windows::core::Result<Option<PathBuf>> {
     let executable = std::env::current_exe()
         .map_err(|error| updater_error(format!("获取当前程序路径失败：{error}")))?;
     let directory = executable
@@ -32,12 +34,9 @@ fn updater_path() -> windows::core::Result<PathBuf> {
         .ok_or_else(|| updater_error("当前程序没有父目录"))?;
     let updater = directory.join("updater.exe");
     if updater.is_file() {
-        Ok(updater)
+        Ok(Some(updater))
     } else {
-        Err(updater_error(format!(
-            "找不到更新器：{}",
-            updater.display()
-        )))
+        Ok(None)
     }
 }
 
@@ -56,7 +55,9 @@ pub fn start_update(status: AsyncSetState<UpdateStatus>) {
     status.call(UpdateStatus::Starting);
 
     let result = (|| {
-        let updater = updater_path().map_err(|error| std::io::Error::other(error.to_string()))?;
+        let updater = updater_path()
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .ok_or_else(|| std::io::Error::other("找不到更新器"))?;
 
         Command::new(updater)
             .arg("--from-app")

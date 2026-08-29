@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[workspace]
+members = ["updater"]
+resolver = "3"
+
 [profile.release]
 strip = true
 lto = true
@@ -13,9 +17,7 @@ panic = "abort"
 [dependencies]
 icoextract_rs = "0.1.2"
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 rfd = { version = "0.17", default-features = false }
-semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
@@ -23,34 +25,16 @@ single-instance = "0.3.3"
 url = "2"
 tray-icon = { version = "0.24", default-features = false }
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
-    "ApplicationModel",
-    "Data_Xml_Dom",
     "Foundation",
-    "System",
-    "UI_Notifications",
-    "appmodel",
     "commctrl",
-    "combaseapi",
-    "objidl",
-    "objbase",
-    "propidlbase",
-    "propkey",
-    "shobjidl_core",
-    "winerror",
-    "handleapi",
     "libloaderapi",
-    "processthreadsapi",
-    "synchapi",
-    "winbase",
     "winnt",
-    "wtypes",
     "shellapi",
     "wingdi",
     "winuser",
 ] }
 windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
 windows-reference = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
-zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 embed-resource = "3"

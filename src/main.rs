@@ -148,7 +148,7 @@ fn app(cx: &mut RenderCx) -> Element {
     .selected_tag(page)
     .on_selection_changed(set_page)
     .pane_display_mode(NavigationViewPaneDisplayMode::Left)
-    .pane_open(true)
+    .pane_open(false)
     .settings_visible(false)
     .back_button_visible(false)
     .into()

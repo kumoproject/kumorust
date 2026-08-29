@@ -1,6 +1,5 @@
 #![windows_subsystem = "windows"]
 
-#[path = "../updater.rs"]
 mod updater;
 
 fn main() {
