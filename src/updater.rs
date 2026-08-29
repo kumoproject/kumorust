@@ -55,6 +55,7 @@ const DEFAULT_UPDATE_SOURCE: &str =
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const DOWNLOAD_BUFFER_SIZE: usize = 128 * 1024;
 const DOWNLOAD_UPDATE_BYTES: u64 = 1024 * 1024;
+const UPDATER_INSTANCE_NAME: &str = "KumoRust.updater";
 const REQUIRED_UPDATE_FILES: [&str; 3] = [
     "kumorust.exe",
     "updater.exe",
@@ -63,7 +64,9 @@ const REQUIRED_UPDATE_FILES: [&str; 3] = [
 
 #[derive(Debug)]
 enum CommandLine {
-    Normal {
+    Ignore,
+    EnsureRuntime,
+    Update {
         wait_pid: Option<u32>,
     },
     ApplyUpdate {
@@ -89,14 +92,40 @@ enum UpdateResult {
 }
 
 pub fn run() -> Result<()> {
-    let wait_pid = match parse_command_line()? {
+    match parse_command_line()? {
+        CommandLine::Ignore => return Ok(()),
+        CommandLine::EnsureRuntime => {
+            let instance = acquire_updater_instance()?;
+            if !instance.is_single() {
+                return Err(app_error("updater 正在运行"));
+            }
+            return run_runtime_setup();
+        }
         CommandLine::ApplyUpdate {
             package_directory,
             install_directory,
             parent_pid,
         } => return run_apply_helper(&package_directory, &install_directory, parent_pid),
-        CommandLine::Normal { wait_pid } => wait_pid,
-    };
+        CommandLine::Update { wait_pid } => {
+            let instance = acquire_updater_instance()?;
+            if !instance.is_single() {
+                return Ok(());
+            }
+            return run_update(wait_pid);
+        }
+    }
+}
+
+fn run_runtime_setup() -> Result<()> {
+    initialize_com()?;
+
+    let updater_path = current_executable()?;
+    let mut toast = ToastReporter::new(&updater_path);
+
+    ensure_runtime(&mut toast, false)
+}
+
+fn run_update(wait_pid: Option<u32>) -> Result<()> {
     initialize_com()?;
 
     let updater_path = current_executable()?;
@@ -110,7 +139,7 @@ pub fn run() -> Result<()> {
         wait_for_process(pid)?;
     }
 
-    if let Err(error) = ensure_runtime(&mut toast) {
+    if let Err(error) = ensure_runtime(&mut toast, true) {
         toast.show_message("Windows App SDK 安装失败", &format!("{error}"));
         eprintln!("KumoRust runtime setup failed: {error}");
         return Err(error);
@@ -147,13 +176,23 @@ pub fn show_fatal_error(error: &Error) {
 }
 
 fn parse_command_line() -> Result<CommandLine> {
-    let mut args = std::env::args_os().skip(1);
+    parse_command_line_args(std::env::args_os().skip(1))
+}
+
+fn parse_command_line_args<I>(arguments: I) -> Result<CommandLine>
+where
+    I: IntoIterator<Item = std::ffi::OsString>,
+{
+    let mut args = arguments.into_iter();
     let mut wait_pid = None;
     let mut from_app = false;
+    let mut ensure_runtime = false;
+    let mut apply_update = None;
 
     while let Some(argument) = args.next() {
         match argument.to_string_lossy().as_ref() {
             "--from-app" => from_app = true,
+            "--ensure-runtime" => ensure_runtime = true,
             "--wait-pid" => {
                 let value = args
                     .next()
@@ -170,14 +209,11 @@ fn parse_command_line() -> Result<CommandLine> {
                 let parent_pid = args
                     .next()
                     .ok_or_else(|| app_error("--apply-update 缺少父进程 ID"))?;
-                if args.next().is_some() {
-                    return Err(app_error("--apply-update 包含未知参数"));
-                }
-                return Ok(CommandLine::ApplyUpdate {
-                    package_directory: package_directory.into(),
-                    install_directory: install_directory.into(),
-                    parent_pid: parse_pid(&parent_pid)?,
-                });
+                apply_update = Some((
+                    package_directory.into(),
+                    install_directory.into(),
+                    parse_pid(&parent_pid)?,
+                ));
             }
             argument => {
                 return Err(app_error(format!("未知参数: {argument}")));
@@ -189,7 +225,37 @@ fn parse_command_line() -> Result<CommandLine> {
         return Err(app_error("--wait-pid 必须与 --from-app 一起使用"));
     }
 
-    Ok(CommandLine::Normal { wait_pid })
+    if let Some((package_directory, install_directory, parent_pid)) = apply_update {
+        if from_app || ensure_runtime || wait_pid.is_some() {
+            return Err(app_error("--apply-update 不能与其他 updater 参数一起使用"));
+        }
+        return Ok(CommandLine::ApplyUpdate {
+            package_directory,
+            install_directory,
+            parent_pid,
+        });
+    }
+
+    if ensure_runtime {
+        if !from_app {
+            return Err(app_error("--ensure-runtime 必须与 --from-app 一起使用"));
+        }
+        if wait_pid.is_some() {
+            return Err(app_error("--ensure-runtime 不能与 --wait-pid 一起使用"));
+        }
+        return Ok(CommandLine::EnsureRuntime);
+    }
+
+    if from_app {
+        Ok(CommandLine::Update { wait_pid })
+    } else {
+        Ok(CommandLine::Ignore)
+    }
+}
+
+fn acquire_updater_instance() -> Result<single_instance::SingleInstance> {
+    single_instance::SingleInstance::new(UPDATER_INSTANCE_NAME)
+        .map_err(|error| app_error(format!("创建 updater 单实例锁失败: {error}")))
 }
 
 fn parse_pid(value: &std::ffi::OsStr) -> Result<u32> {
@@ -208,7 +274,7 @@ fn initialize_com() -> Result<()> {
     }
 }
 
-fn ensure_runtime(toast: &mut ToastReporter) -> Result<()> {
+fn ensure_runtime(toast: &mut ToastReporter, announce_completion: bool) -> Result<()> {
     if runtime_is_installed().map_err(|error| {
         app_error(format!(
             "检查已安装的 Windows App SDK package 失败: {error}"
@@ -254,7 +320,9 @@ fn ensure_runtime(toast: &mut ToastReporter) -> Result<()> {
         ));
     }
 
-    toast.show_message("Windows App SDK 已安装", "KumoRust 正在检查应用更新");
+    if announce_completion {
+        toast.show_message("Windows App SDK 已安装", "KumoRust 正在检查应用更新");
+    }
     Ok(())
 }
 
@@ -1248,6 +1316,28 @@ fn propvariant_string(value: &[u16]) -> PROPVARIANT {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignores_launch_without_internal_arguments() {
+        let arguments = Vec::<std::ffi::OsString>::new();
+        assert!(matches!(
+            parse_command_line_args(arguments),
+            Ok(CommandLine::Ignore)
+        ));
+    }
+
+    #[test]
+    fn accepts_runtime_setup_only_from_the_main_app() {
+        let arguments = [
+            std::ffi::OsString::from("--from-app"),
+            std::ffi::OsString::from("--ensure-runtime"),
+        ];
+        assert!(matches!(
+            parse_command_line_args(arguments),
+            Ok(CommandLine::EnsureRuntime)
+        ));
+        assert!(parse_command_line_args([std::ffi::OsString::from("--ensure-runtime")]).is_err());
+    }
 
     #[test]
     fn matches_current_architecture_runtime_package() {

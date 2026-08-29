@@ -4,15 +4,24 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [dependencies]
-png = "0.18"
+icoextract_rs = "0.1.2"
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 rfd = { version = "0.17", default-features = false }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
+single-instance = "0.3.3"
 url = "2"
+tray-icon = { version = "0.24", default-features = false }
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a", features = [
     "ApplicationModel",
     "Data_Xml_Dom",
@@ -20,6 +29,7 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd3
     "System",
     "UI_Notifications",
     "appmodel",
+    "commctrl",
     "combaseapi",
     "objidl",
     "objbase",
@@ -28,6 +38,7 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd3
     "shobjidl_core",
     "winerror",
     "handleapi",
+    "libloaderapi",
     "processthreadsapi",
     "synchapi",
     "winbase",
@@ -38,7 +49,9 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd3
     "winuser",
 ] }
 windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
+windows-reference = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
+embed-resource = "3"
 windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "79d8db43bbd38167941416cea2004dd3067e785a" }

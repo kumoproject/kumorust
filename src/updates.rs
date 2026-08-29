@@ -1,9 +1,49 @@
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::settings_controls::SettingsCard;
+use windows::core::{Error, HRESULT};
 use windows_reactor::{
     AsyncSetState, Button, Element, Symbol, TextStyleExt, button, text_block, tokens,
 };
+
+const RUNTIME_SETUP_ARGUMENTS: [&str; 2] = ["--from-app", "--ensure-runtime"];
+
+pub fn ensure_runtime() -> windows::core::Result<()> {
+    let updater = updater_path()?;
+    let status = Command::new(&updater)
+        .args(RUNTIME_SETUP_ARGUMENTS)
+        .status()
+        .map_err(|error| updater_error(format!("启动 runtime 安装器失败：{error}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(updater_error(format!(
+            "runtime 安装器退出状态异常：{status}"
+        )))
+    }
+}
+
+fn updater_path() -> windows::core::Result<PathBuf> {
+    let executable = std::env::current_exe()
+        .map_err(|error| updater_error(format!("获取当前程序路径失败：{error}")))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| updater_error("当前程序没有父目录"))?;
+    let updater = directory.join("updater.exe");
+    if updater.is_file() {
+        Ok(updater)
+    } else {
+        Err(updater_error(format!(
+            "找不到更新器：{}",
+            updater.display()
+        )))
+    }
+}
+
+fn updater_error(message: impl Into<String>) -> Error {
+    Error::new(HRESULT(0x8000_4005_u32 as i32), message.into())
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UpdateStatus {
@@ -16,16 +56,7 @@ pub fn start_update(status: AsyncSetState<UpdateStatus>) {
     status.call(UpdateStatus::Starting);
 
     let result = (|| {
-        let updater = std::env::current_exe()?
-            .parent()
-            .map(|directory| directory.join("updater.exe"))
-            .ok_or_else(|| std::io::Error::other("当前应用没有父目录"))?;
-        if !updater.is_file() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("找不到更新器: {}", updater.display()),
-            ));
-        }
+        let updater = updater_path().map_err(|error| std::io::Error::other(error.to_string()))?;
 
         Command::new(updater)
             .arg("--from-app")

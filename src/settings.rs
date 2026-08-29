@@ -4,10 +4,19 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseBehavior {
+    Exit,
+    Hide,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct SettingsFile {
     #[serde(default)]
     library_folders: Vec<String>,
+    #[serde(default)]
+    close_behavior: Option<CloseBehavior>,
 }
 
 pub fn app_data_directory() -> PathBuf {
@@ -26,21 +35,34 @@ fn settings_path() -> PathBuf {
 }
 
 pub fn load_library_folders() -> Vec<String> {
-    let Ok(bytes) = fs::read(settings_path()) else {
-        return Vec::new();
-    };
-    let Ok(settings) = serde_json::from_slice::<SettingsFile>(&bytes) else {
-        return Vec::new();
-    };
+    deduplicate_folders(load_settings().library_folders)
+}
 
-    deduplicate_folders(settings.library_folders)
+pub fn load_close_behavior() -> Option<CloseBehavior> {
+    load_settings().close_behavior
+}
+
+pub fn save_close_behavior(behavior: CloseBehavior) -> io::Result<()> {
+    let mut settings = load_settings();
+    settings.close_behavior = Some(behavior);
+    save_settings(&settings)
 }
 
 pub fn save_library_folders(folders: &[String]) -> io::Result<()> {
-    fs::create_dir_all(app_data_directory())?;
-    let settings = SettingsFile {
-        library_folders: deduplicate_folders(folders.to_vec()),
+    let mut settings = load_settings();
+    settings.library_folders = deduplicate_folders(folders.to_vec());
+    save_settings(&settings)
+}
+
+fn load_settings() -> SettingsFile {
+    let Ok(bytes) = fs::read(settings_path()) else {
+        return SettingsFile::default();
     };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+fn save_settings(settings: &SettingsFile) -> io::Result<()> {
+    fs::create_dir_all(app_data_directory())?;
     let bytes = serde_json::to_vec_pretty(&settings)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     fs::write(settings_path(), bytes)

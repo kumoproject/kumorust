@@ -4,7 +4,9 @@ mod icon_extractor;
 mod library;
 mod settings;
 mod settings_controls;
+mod tray;
 mod updates;
+mod window;
 
 use std::process::Command;
 use std::sync::{
@@ -15,8 +17,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use library::GameEntry;
 use settings_controls::{SettingsCard, SettingsExpander};
+use single_instance::SingleInstance;
 use updates::UpdateStatus;
+use windows::core::{Error, HRESULT};
 use windows_reactor::*;
+
+const MAIN_INSTANCE_NAME: &str = "KumoRust.main";
 
 #[derive(Clone, Debug, PartialEq)]
 enum ScanStatus {
@@ -78,12 +84,14 @@ impl ScanControls {
 }
 
 fn app(cx: &mut RenderCx) -> Element {
+    let _tray = cx.use_memo((), tray::initialize);
     let (page, set_page) = cx.use_state(String::from("library"));
     let (folders, set_folders) = cx.use_state(settings::load_library_folders());
     let (games, set_games) = cx.use_async_state(Vec::<GameEntry>::new());
     let (scan_status, set_scan_status) = cx.use_async_state(ScanStatus::Idle);
     let (update_status, set_update_status) = cx.use_async_state(UpdateStatus::Idle);
     let (notice, set_notice) = cx.use_state(String::new());
+    cx.use_effect((), window::install_titlebar_icon_hider);
     let generation = cx.use_memo((), || Arc::new(AtomicU64::new(0)));
 
     let scan_controls = ScanControls {
@@ -625,10 +633,17 @@ fn epoch_seconds() -> u64 {
 }
 
 fn main() -> Result<()> {
+    let instance = SingleInstance::new(MAIN_INSTANCE_NAME)
+        .map_err(|error| Error::new(HRESULT(0x8000_4005_u32 as i32), error.to_string()))?;
+    if !instance.is_single() {
+        window::activate_existing_main_window();
+        return Ok(());
+    }
+
+    updates::ensure_runtime()?;
     windows_reactor::bootstrap()?;
     App::new()
-        .title("KumoRust")
-        .inner_size(1200.0, 760.0)
+        .title(window::MAIN_WINDOW_TITLE)
         .backdrop(Backdrop::Mica)
         .render(app)
 }
