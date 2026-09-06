@@ -11,11 +11,9 @@ changes.
 
 ## Runtime model
 
-The application is framework-dependent. `build.rs` calls
-`windows_reactor_setup::as_framework_dependent()`, which stages only the
-architecture-specific `microsoft.windowsappruntime.bootstrap.dll` beside the
-executables. The main program owns its Windows App SDK requirement and checks
-the required package identities before calling `windows_reactor::bootstrap()`.
+The application is framework-dependent. The main program owns its Windows App
+SDK requirement and checks the required package identities before calling
+`windows_reactor::bootstrap()`.
 If the packages are missing, it passes a complete `runtime-spec` (version,
 architecture, package identities, installer URL, and SHA-256) to `updater.exe`,
 waits for the installer to finish, and checks the packages again.
@@ -100,6 +98,7 @@ $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
 .\updater.exe
 ```
 
-The `windows-rs` dependencies are pinned to commit
+The published `windows-reactor` dependency uses crates.io version `0.100`.
+The remaining Git-based `windows-rs` dependencies are pinned to commit
 `a8a5d720331920100326c89044f950b703a5b4cd`.
 
