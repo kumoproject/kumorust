@@ -221,18 +221,31 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
         ),
     };
 
-    NavigationView::new()
+    let navigation = NavigationView::new()
         .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+        .is_pane_toggle_button_visible(false)
         .is_pane_open(model.pane_open)
         .on_is_pane_open_changed(context.callback(AppMessage::PaneOpenChanged))
         .is_settings_visible(false)
         .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
-        .pane_title("KumoRust")
         .on_selected_tag_changed(context.callback(AppMessage::TagChanged))
         .slots([
             SlotView::collection(NavigationViewSlot::MenuItems, menu_items),
             SlotView::new(NavigationViewSlot::Content, content),
-        ])
+        ]);
+
+    let title_bar = TitleBar::new()
+        .preferred_height(WindowTitleBarHeight::Standard)
+        .height(48.0)
+        .title("KumoRust")
+        .is_pane_toggle_button_visible(true)
+        .on_pane_toggle_requested(context.message(AppMessage::PaneOpenChanged(
+            !model.pane_open,
+        )));
+
+    StackPanel::new()
+        .orientation(Orientation::Vertical)
+        .children((title_bar, navigation))
 }
 
 /// Runs an effect against the owning component context. This is the only
