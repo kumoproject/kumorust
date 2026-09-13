@@ -181,6 +181,10 @@ impl Component for KumoApp {
 /// wires navigation to root messages.
 pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     context.window_title(window::MAIN_WINDOW_TITLE);
+    context.use_effect("main-window-close-to-hide", (), || {
+        window::install_close_to_hide();
+        None
+    });
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)

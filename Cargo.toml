@@ -27,6 +27,7 @@ tray-icon = { version = "0.24", default-features = false }
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd", features = [
     "Foundation",
     "appmodel",
+    "commctrl",
     "libloaderapi",
     "shellapi",
     "wingdi",
