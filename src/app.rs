@@ -188,7 +188,6 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)
-            .client_size(1080.0, 720.0),
     );
 
     let menu_items = [

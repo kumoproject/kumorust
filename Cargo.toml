@@ -23,7 +23,6 @@ serde_json = "1"
 sha2 = "0.11"
 single-instance = "0.3.3"
 url = "2"
-tray-icon = { version = "0.24", default-features = false }
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd", features = [
     "Foundation",
     "appmodel",
