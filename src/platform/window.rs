@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use windows::core::PCWSTR;
 use windows::Win32::commctrl::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::minwindef::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::windef::HWND;
 use windows::Win32::winuser::{
-    FindWindowW, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, WM_CLOSE, WM_NCDESTROY,
+    FindWindowW, SW_HIDE, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_CLOSE, WM_NCDESTROY,
 };
+use windows::core::PCWSTR;
 
 pub(crate) const MAIN_WINDOW_TITLE: &str = "kumokumo";
 

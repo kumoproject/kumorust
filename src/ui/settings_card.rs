@@ -146,9 +146,8 @@ impl SettingsExpander {
             CardSurface::ExpanderHeader,
         );
 
-        let mut item_views = Vec::with_capacity(
-            self.items.len() + usize::from(self.items_footer.is_some()),
-        );
+        let mut item_views =
+            Vec::with_capacity(self.items.len() + usize::from(self.items_footer.is_some()));
         item_views.extend(self.items);
         if let Some(footer) = self.items_footer {
             item_views.push(footer);
@@ -225,15 +224,17 @@ fn render_card(card: SettingsCard, surface: CardSurface) -> View {
     let details = Border::new()
         .vertical_alignment(VerticalAlignment::Center)
         .grid_column(1)
-        .content(StackPanel::new().spacing(4.0).children((
-            TextBlock::new()
-                .text(header.clone())
-                .font_size(14.0)
-                .font_weight(FontWeight::SEMI_BOLD)
-                .max_lines(1)
-                .text_trimming(TextTrimming::CharacterEllipsis),
-            description_view,
-        )));
+        .content(
+            StackPanel::new().spacing(4.0).children((
+                TextBlock::new()
+                    .text(header.clone())
+                    .font_size(14.0)
+                    .font_weight(FontWeight::SEMI_BOLD)
+                    .max_lines(1)
+                    .text_trimming(TextTrimming::CharacterEllipsis),
+                description_view,
+            )),
+        );
     let content_view = content.unwrap_or_else(View::empty);
 
     let layout: View = if has_header {

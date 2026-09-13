@@ -35,29 +35,31 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
     let details = Border::new()
         .vertical_alignment(VerticalAlignment::Center)
         .grid_column(1)
-        .content(StackPanel::new().spacing(4.0).children((
-            TextBlock::new()
-                .text(game.name.clone())
-                .font_size(18.0)
-                .font_weight(FontWeight::SEMI_BOLD)
-                .max_lines(1)
-                .text_trimming(TextTrimming::CharacterEllipsis),
-            TextBlock::new()
-                .text(tr("library.game_type"))
-                .font_size(13.0)
-                .foreground(TEXT_SECONDARY),
-            TextBlock::new()
-                .text(format!(
-                    "{} · {} · {}",
-                    game.directory,
-                    format_size(game.size),
-                    format_age(game.modified)
-                ))
-                .font_size(12.0)
-                .foreground(TEXT_TERTIARY)
-                .max_lines(1)
-                .text_trimming(TextTrimming::CharacterEllipsis),
-        )));
+        .content(
+            StackPanel::new().spacing(4.0).children((
+                TextBlock::new()
+                    .text(game.name.clone())
+                    .font_size(18.0)
+                    .font_weight(FontWeight::SEMI_BOLD)
+                    .max_lines(1)
+                    .text_trimming(TextTrimming::CharacterEllipsis),
+                TextBlock::new()
+                    .text(tr("library.game_type"))
+                    .font_size(13.0)
+                    .foreground(TEXT_SECONDARY),
+                TextBlock::new()
+                    .text(format!(
+                        "{} · {} · {}",
+                        game.directory,
+                        format_size(game.size),
+                        format_age(game.modified)
+                    ))
+                    .font_size(12.0)
+                    .foreground(TEXT_TERTIARY)
+                    .max_lines(1)
+                    .text_trimming(TextTrimming::CharacterEllipsis),
+            )),
+        );
 
     let path = game.path.clone();
     let directory = game.directory.clone();
@@ -81,11 +83,7 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
         .content(
             Border::new().padding(Thickness::uniform(14.0)).content(
                 Grid::new()
-                    .columns([
-                        GridLength::Pixel(104.0),
-                        GridLength::STAR,
-                        GridLength::Auto,
-                    ])
+                    .columns([GridLength::Pixel(104.0), GridLength::STAR, GridLength::Auto])
                     .column_spacing(16.0)
                     .vertical_alignment(VerticalAlignment::Center)
                     .children((icon_frame, details, launch)),

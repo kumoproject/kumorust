@@ -2,19 +2,19 @@ use std::cell::RefCell;
 use std::mem::size_of;
 
 use windows::{
-    core::{s, PCSTR, PCWSTR},
     Win32::libloaderapi::{GetProcAddress, LoadLibraryA},
     Win32::minwindef::{LPARAM, LRESULT, WPARAM},
     Win32::shellapi::{
-        Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+        NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW,
     },
     Win32::windef::{HMENU, HWND, POINT},
     Win32::winuser::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-        GetCursorPos, RegisterClassExW, SetForegroundWindow, TrackPopupMenu, HWND_MESSAGE,
-        MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_NULL, WM_RBUTTONUP,
-        WNDCLASSEXW,
+        GetCursorPos, HWND_MESSAGE, MF_STRING, RegisterClassExW, SetForegroundWindow,
+        TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_NULL,
+        WM_RBUTTONUP, WNDCLASSEXW,
     },
+    core::{PCSTR, PCWSTR, s},
 };
 
 const TRAY_ICON_ID: u32 = 1;

@@ -17,9 +17,7 @@ pub struct GameEntry {
 /// separator-insensitive).
 pub fn contains_folder(folders: &[String], candidate: &str) -> bool {
     let candidate = folder_key(candidate);
-    folders
-        .iter()
-        .any(|folder| folder_key(folder) == candidate)
+    folders.iter().any(|folder| folder_key(folder) == candidate)
 }
 
 /// Removes empty and duplicate entries, keeping the first occurrence.

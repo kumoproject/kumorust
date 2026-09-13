@@ -85,13 +85,24 @@ pub enum AppMessage {
 pub enum AppEffect {
     None,
     /// Run a background scan of `folders`.
-    Scan { generation: u64, folders: Vec<String> },
+    Scan {
+        generation: u64,
+        folders: Vec<String>,
+    },
     /// Show the system folder picker.
-    PickFolder { current_folders: Vec<String> },
+    PickFolder {
+        current_folders: Vec<String>,
+    },
     /// Persist the folder list (and rescan when requested).
-    SaveFolders { folders: Vec<String>, rescan: bool },
+    SaveFolders {
+        folders: Vec<String>,
+        rescan: bool,
+    },
     /// Spawn a game process.
-    LaunchGame { path: String, directory: String },
+    LaunchGame {
+        path: String,
+        directory: String,
+    },
     /// Launch the standalone updater.
     StartUpdater,
 }
@@ -159,8 +170,10 @@ impl Component for KumoApp {
 
         // Bootstrap: scan the configured folders exactly once at startup.
         let mut model = AppModel::new();
-        if let AppEffect::Scan { generation, folders } =
-            update(&mut model, AppMessage::Library(LibraryMessage::Refresh))
+        if let AppEffect::Scan {
+            generation,
+            folders,
+        } = update(&mut model, AppMessage::Library(LibraryMessage::Refresh))
         {
             context.spawn_background(move |_token| scan_task(generation, &folders));
         }
@@ -192,7 +205,7 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
                 min_width: Some(800.0),
                 min_height: Some(600.0),
                 ..Default::default()
-            })
+            }),
     );
 
     let menu_items = [
@@ -244,9 +257,7 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
         .height(48.0)
         .title("KumoRust")
         .is_pane_toggle_button_visible(true)
-        .on_pane_toggle_requested(context.message(AppMessage::PaneOpenChanged(
-            !model.pane_open,
-        )));
+        .on_pane_toggle_requested(context.message(AppMessage::PaneOpenChanged(!model.pane_open)));
 
     StackPanel::new()
         .orientation(Orientation::Vertical)
@@ -262,7 +273,10 @@ where
 {
     match effect {
         AppEffect::None => {}
-        AppEffect::Scan { generation, folders } => {
+        AppEffect::Scan {
+            generation,
+            folders,
+        } => {
             context.spawn_background(move |_token| scan_task(generation, &folders));
         }
         AppEffect::PickFolder { current_folders } => pick_folder(&current_folders, context),
@@ -279,21 +293,29 @@ where
             }
         }
         AppEffect::LaunchGame { path, directory } => {
-            match std::process::Command::new(&path).current_dir(&directory).spawn() {
+            match std::process::Command::new(&path)
+                .current_dir(&directory)
+                .spawn()
+            {
                 Ok(_) => {}
                 Err(error) => {
-                    let _ = context
-                        .sender()
-                        .send(AppMessage::Notice(fmt2("error.launch_failed", path, error)));
+                    let _ = context.sender().send(AppMessage::Notice(fmt2(
+                        "error.launch_failed",
+                        path,
+                        error,
+                    )));
                 }
             }
         }
         AppEffect::StartUpdater => match updater::start_update() {
             Ok(()) => std::process::exit(0),
             Err(error) => {
-                let _ = context.sender().send(AppMessage::Settings(
-                    SettingsMessage::UpdateFailed(fmt1("error.updater_start_failed", error)),
-                ));
+                let _ = context
+                    .sender()
+                    .send(AppMessage::Settings(SettingsMessage::UpdateFailed(fmt1(
+                        "error.updater_start_failed",
+                        error,
+                    ))));
             }
         },
     }

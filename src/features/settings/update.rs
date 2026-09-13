@@ -8,9 +8,14 @@ use crate::features::settings::model::SettingsModel;
 pub enum SettingsEffect {
     None,
     /// Show the system folder picker and apply the selection.
-    PickFolder { current_folders: Vec<String> },
+    PickFolder {
+        current_folders: Vec<String>,
+    },
     /// Persist the folder list (and rescan when requested).
-    SaveFolders { folders: Vec<String>, rescan: bool },
+    SaveFolders {
+        folders: Vec<String>,
+        rescan: bool,
+    },
     /// Launch the standalone updater.
     StartUpdater,
 }

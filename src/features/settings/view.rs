@@ -27,22 +27,23 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
         .map(|folder| folder_card(folder, cx).into_expander_item())
         .collect::<Vec<_>>();
 
-    let mut folders_expander = SettingsExpander::new(tr("settings.indexed"))
-        .description(tr("settings.indexed.description"))
-        .header_icon(SymbolIcon::new().symbol(Symbol::Library))
-        .items(folder_items)
-        .expanded(model.folders_expanded)
-        .on_expanding(cx.callback(|expanded| {
-            AppMessage::Settings(SettingsMessage::FoldersExpanded(expanded))
-        }));
+    let mut folders_expander =
+        SettingsExpander::new(tr("settings.indexed"))
+            .description(tr("settings.indexed.description"))
+            .header_icon(SymbolIcon::new().symbol(Symbol::Library))
+            .items(folder_items)
+            .expanded(model.folders_expanded)
+            .on_expanding(cx.callback(|expanded| {
+                AppMessage::Settings(SettingsMessage::FoldersExpanded(expanded))
+            }));
     if model.folders.is_empty() {
         folders_expander = folders_expander.items_footer(
-            Border::new()
-                .padding(Thickness::xy(58.0, 18.0))
-                .content(StackPanel::new().spacing(7.0).children((
+            Border::new().padding(Thickness::xy(58.0, 18.0)).content(
+                StackPanel::new().spacing(7.0).children((
                     body(tr("settings.indexed.empty")),
                     caption(tr("settings.indexed.empty.caption")),
-                ))),
+                )),
+            ),
         );
     }
     let folders_content = folders_expander.into_element();

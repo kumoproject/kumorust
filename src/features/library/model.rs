@@ -4,7 +4,10 @@ use crate::domain::folder::GameEntry;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScanStatus {
     Idle,
-    Scanning { inspected: usize, found: usize },
+    Scanning {
+        inspected: usize,
+        found: usize,
+    },
     Complete {
         inspected: usize,
         found: usize,

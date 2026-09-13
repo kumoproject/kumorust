@@ -2,8 +2,8 @@ use windows_reactor::*;
 
 use crate::app::{AppMessage, KumoApp, Route};
 use crate::core::i18n::{fmt1, fmt2, fmt3, tr};
-use crate::features::library::{LibraryMessage, LibraryModel, ScanStatus};
 use crate::features::library::components::game_card;
+use crate::features::library::{LibraryMessage, LibraryModel, ScanStatus};
 use crate::features::settings::SettingsMessage;
 use crate::ui::buttons::icon_content;
 use crate::ui::format::format_epoch_age;
@@ -64,17 +64,20 @@ pub fn view(
     } else {
         ListView::new()
             .selected_index(model.selected)
-            .on_selection_changed(cx.callback(|index| {
-                AppMessage::Library(LibraryMessage::Select(index))
-            }))
-            .collection_slot(ListViewSlot::Items, model.games.iter().map(|game| {
-                KeyedView::new(
-                    game.path.clone(),
-                    ListViewItem::new()
-                        .tag(game.path.clone())
-                        .content(game_card(game, cx)),
-                )
-            }))
+            .on_selection_changed(
+                cx.callback(|index| AppMessage::Library(LibraryMessage::Select(index))),
+            )
+            .collection_slot(
+                ListViewSlot::Items,
+                model.games.iter().map(|game| {
+                    KeyedView::new(
+                        game.path.clone(),
+                        ListViewItem::new()
+                            .tag(game.path.clone())
+                            .content(game_card(game, cx)),
+                    )
+                }),
+            )
     };
 
     ScrollViewer::new()
@@ -128,7 +131,11 @@ fn empty_library_state(
                 .slot(ViewboxSlot::Child, FontIcon::new().glyph(glyph)),
         );
     }
-    content.push(subtitle(heading).horizontal_alignment(HorizontalAlignment::Center).into());
+    content.push(
+        subtitle(heading)
+            .horizontal_alignment(HorizontalAlignment::Center)
+            .into(),
+    );
     content.push(
         body(message)
             .foreground(TEXT_SECONDARY)
@@ -136,20 +143,18 @@ fn empty_library_state(
             .into(),
     );
 
-    let empty_content = Border::new()
-        .padding(Thickness::uniform(42.0))
-        .content(
-            StackPanel::new()
-                .spacing(9.0)
-                .horizontal_alignment(HorizontalAlignment::Center)
-                .vertical_alignment(VerticalAlignment::Center)
-                .keyed_children(
-                    content
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, view)| KeyedView::new(index, view)),
-                ),
-        );
+    let empty_content = Border::new().padding(Thickness::uniform(42.0)).content(
+        StackPanel::new()
+            .spacing(9.0)
+            .horizontal_alignment(HorizontalAlignment::Center)
+            .vertical_alignment(VerticalAlignment::Center)
+            .keyed_children(
+                content
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, view)| KeyedView::new(index, view)),
+            ),
+    );
 
     if folders_empty {
         let open_settings = Button::new()

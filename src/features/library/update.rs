@@ -7,9 +7,14 @@ use crate::ui::format::epoch_seconds;
 pub enum LibraryEffect {
     None,
     /// Scan all indexed folders; the root app supplies the folder list.
-    Scan { generation: u64 },
+    Scan {
+        generation: u64,
+    },
     /// Spawn a game process.
-    Launch { path: String, directory: String },
+    Launch {
+        path: String,
+        directory: String,
+    },
 }
 
 /// Pure MVU reducer for the library slice.

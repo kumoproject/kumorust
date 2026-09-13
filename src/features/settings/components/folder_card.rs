@@ -10,9 +10,11 @@ use crate::ui::settings_card::SettingsCard;
 pub fn folder_card(folder: &str, cx: &ViewContext<KumoApp>) -> SettingsCard {
     let remove = Button::new()
         .style(ButtonStyle::Subtle)
-        .on_click(cx.message(AppMessage::Settings(SettingsMessage::RemoveFolder(
-            folder.to_string(),
-        ))))
+        .on_click(
+            cx.message(AppMessage::Settings(SettingsMessage::RemoveFolder(
+                folder.to_string(),
+            ))),
+        )
         .content(SymbolIcon::new().symbol(Symbol::Delete))
         .tooltip(tr("settings.remove_folder"));
 
