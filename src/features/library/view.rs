@@ -77,7 +77,9 @@ pub fn view(
             }))
     };
 
-    ScrollViewer::new().content(vstack((header, info_bar(notice), body)))
+    ScrollViewer::new()
+        .margin(Thickness::uniform(24.0))
+        .content(vstack((header, info_bar(notice), body)))
 }
 
 /// The empty library placeholder, with guidance or a scan progress ring.

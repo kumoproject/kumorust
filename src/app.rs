@@ -53,7 +53,7 @@ impl AppModel {
     pub fn new() -> Self {
         Self {
             route: Route::Library,
-            pane_open: false,
+            pane_open: true,
             notice: String::new(),
             library: LibraryModel::new(),
             settings: SettingsModel::new(config::load_library_folders()),
@@ -188,6 +188,11 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)
+            .constraints(WindowConstraints {
+                min_width: Some(800.0),
+                min_height: Some(600.0),
+                ..Default::default()
+            })
     );
 
     let menu_items = [
@@ -222,7 +227,7 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     };
 
     let navigation = NavigationView::new()
-        .pane_display_mode(NavigationViewPaneDisplayMode::Left)
+        .pane_display_mode(NavigationViewPaneDisplayMode::Auto)
         .is_pane_toggle_button_visible(false)
         .is_pane_open(model.pane_open)
         .on_is_pane_open_changed(context.callback(AppMessage::PaneOpenChanged))

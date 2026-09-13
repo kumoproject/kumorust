@@ -52,16 +52,18 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
         let _ = check_update.call(());
     });
 
-    ScrollViewer::new().content(vstack((
-        title(tr("nav.settings")),
-        TextBlock::new()
-            .text(tr("settings.subtitle"))
-            .font_size(14.0)
-            .foreground(TEXT_SECONDARY),
-        library_card,
-        folders_content,
-        subtitle(tr("settings.updates")),
-        update_card,
-        info_bar(notice),
-    )))
+    ScrollViewer::new()
+        .margin(Thickness::uniform(24.0))
+        .content(vstack((
+            title(tr("nav.settings")),
+            TextBlock::new()
+                .text(tr("settings.subtitle"))
+                .font_size(14.0)
+                .foreground(TEXT_SECONDARY),
+            library_card,
+            folders_content,
+            subtitle(tr("settings.updates")),
+            update_card,
+            info_bar(notice),
+        )))
 }
