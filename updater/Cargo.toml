@@ -10,34 +10,19 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 single-instance = "0.3.3"
 url = "2"
-windows = { git = "https://github.com/microsoft/windows-rs", rev = "a8a5d720331920100326c89044f950b703a5b4cd", features = [
-    "Data_Xml_Dom",
-    "Foundation",
-    "UI_Notifications",
-    "combaseapi",
-    "objidl",
-    "objbase",
-    "propidlbase",
-    "propkey",
-    "shobjidl_core",
-    "handleapi",
-    "processthreadsapi",
-    "synchapi",
-    "winbase",
-    "winnt",
-    "wtypes",
-    "wtypesbase",
-    "winuser",
-] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
+
+[target.'cfg(not(windows))'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
 
 [build-dependencies]
 winresource = "0.1.31"
-

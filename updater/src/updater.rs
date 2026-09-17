@@ -2,43 +2,20 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::{fmt, thread};
 
 use reqwest::blocking::Client;
 use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use url::Url;
-use windows::UI::Notifications::{
-    NotificationData, ToastNotification, ToastNotificationManager, ToastNotifier,
-};
-use windows::Win32::combaseapi::{CoCreateInstance, CoInitializeEx};
-use windows::Win32::handleapi::CloseHandle;
-use windows::Win32::objbase::COINIT_APARTMENTTHREADED;
-use windows::Win32::objidl::IPersistFile;
-use windows::Win32::processthreadsapi::OpenProcess;
-use windows::Win32::propidlbase::{
-    PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0,
-    PROPVARIANT_0_0_0,
-};
-use windows::Win32::propkey::PKEY_AppUserModel_ID;
-use windows::Win32::propsys::IPropertyStore;
-use windows::Win32::shobjidl_core::{IShellLinkW, ShellLink};
-use windows::Win32::synchapi::WaitForSingleObject;
-use windows::Win32::winbase::{WAIT_FAILED, WAIT_OBJECT_0};
-use windows::Win32::winnt::SYNCHRONIZE;
-use windows::Win32::winuser::{MB_ICONERROR, MB_OK, MessageBoxW};
-use windows::Win32::wtypes::{VARTYPE, VT_LPWSTR};
-use windows::Win32::wtypesbase::CLSCTX_INPROC_SERVER;
-use windows::core::{Error, HRESULT, HSTRING, Interface, PCWSTR, PWSTR, Result};
 
-const TOAST_APP_ID: &str = "KumoRust";
 const UPDATE_SOURCE_ENV: &str = "KUMORUST_UPDATE_SOURCE";
 const DEFAULT_UPDATE_SOURCE: &str =
     "https://github.com/kumoproject/kumorust/releases/latest/download";
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const DOWNLOAD_BUFFER_SIZE: usize = 128 * 1024;
-const DOWNLOAD_UPDATE_BYTES: u64 = 1024 * 1024;
 const UPDATER_INSTANCE_NAME: &str = "KumoRust.updater";
 const REQUIRED_UPDATE_FILES: [&str; 3] = [
     "kumorust.exe",
@@ -94,6 +71,19 @@ enum UpdateResult {
     HelperStarted,
 }
 
+type Result<T> = std::result::Result<T, UpdaterError>;
+
+#[derive(Debug)]
+pub struct UpdaterError(String);
+
+impl fmt::Display for UpdaterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UpdaterError {}
+
 pub fn run() -> Result<()> {
     match parse_command_line()? {
         CommandLine::Ignore => Ok(()),
@@ -126,10 +116,7 @@ fn run_runtime_install(spec_json: &str) -> Result<()> {
     let spec: RuntimeSpec = serde_json::from_str(spec_json)
         .map_err(|error| app_error(format!("解析 runtime-spec 失败: {error}")))?;
     let (installer_url, expected_hash) = validate_runtime_spec(&spec)?;
-    initialize_com()?;
 
-    let updater_path = current_executable()?;
-    let mut toast = ToastReporter::new(&updater_path);
     let cache = runtime_cache_directory(&spec)?;
     let installer = cache.join(format!(
         "WindowsAppRuntimeInstall-{}-{}.exe",
@@ -141,18 +128,13 @@ fn run_runtime_install(spec_json: &str) -> Result<()> {
             fs::remove_file(&installer)
                 .map_err(|error| io_error("删除损坏的 runtime 缓存失败", error))?;
         }
-        toast.begin_progress(
-            &format!("Windows App SDK {}", spec.version),
-            "正在下载官方 runtime installer",
-        );
         let client = http_client()?;
-        download_file(&client, &installer_url, &installer, None, &mut toast)?;
+        download_file(&client, &installer_url, &installer, None)?;
         if !file_matches_hash_and_size(&installer, &expected_hash, None)? {
             return Err(app_error("Windows App SDK installer SHA-256 校验失败"));
         }
     }
 
-    toast.update_progress(1.0, "下载完成，正在安装", "安装中");
     let status = Command::new(&installer)
         .arg("--quiet")
         .status()
@@ -167,47 +149,27 @@ fn run_runtime_install(spec_json: &str) -> Result<()> {
 }
 
 fn run_update(wait_pid: Option<u32>, app_version: &str) -> Result<()> {
-    initialize_com()?;
-
     let updater_path = current_executable()?;
     let install_directory = updater_path
         .parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| app_error("updater.exe 没有父目录"))?;
-    let mut toast = ToastReporter::new(&updater_path);
-
     if let Some(pid) = wait_pid {
         wait_for_process(pid)?;
     }
 
-    match update_application(&install_directory, &mut toast, app_version) {
+    match update_application(&install_directory, app_version) {
         Ok(UpdateResult::HelperStarted) => Ok(()),
         Ok(UpdateResult::NoUpdate) => launch_application(&install_directory),
         Err(error) => {
-            toast.show_message("应用更新失败", &format!("{error}\n将启动当前版本"));
             eprintln!("KumoRust update failed: {error}");
             launch_application(&install_directory)
         }
     }
 }
 
-pub fn show_fatal_error(error: &Error) {
-    let message = format!("KumoRust 无法启动：{error}");
-    if let Ok(updater_path) = current_executable() {
-        let toast = ToastReporter::new(&updater_path);
-        toast.show_message("KumoRust 启动失败", &message);
-    }
-
-    let message_wide = wide_string_from_str(&message);
-    let title_wide = wide_string_from_str("KumoRust");
-    unsafe {
-        let _ = MessageBoxW(
-            None,
-            PCWSTR::from_raw(message_wide.as_ptr()),
-            PCWSTR::from_raw(title_wide.as_ptr()),
-            (MB_OK | MB_ICONERROR) as u32,
-        );
-    }
+pub fn show_fatal_error(error: &UpdaterError) {
+    eprintln!("KumoRust 无法启动：{error}");
 }
 
 fn parse_command_line() -> Result<CommandLine> {
@@ -323,15 +285,6 @@ fn parse_pid(value: &std::ffi::OsStr) -> Result<u32> {
         .map_err(|_| app_error(format!("无效的进程 ID: {}", value.to_string_lossy())))
 }
 
-fn initialize_com() -> Result<()> {
-    let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED as u32) };
-    if result.0 < 0 {
-        Err(Error::from_hresult(result))
-    } else {
-        Ok(())
-    }
-}
-
 fn validate_runtime_spec(spec: &RuntimeSpec) -> Result<(Url, [u8; 32])> {
     if !is_safe_path_component(&spec.version) {
         return Err(app_error("runtime-spec 的版本号无效"));
@@ -399,11 +352,7 @@ fn valid_runtime_installer(path: &Path, expected_hash: &[u8; 32]) -> Result<bool
     Ok(false)
 }
 
-fn update_application(
-    install_directory: &Path,
-    toast: &mut ToastReporter,
-    app_version: &str,
-) -> Result<UpdateResult> {
+fn update_application(install_directory: &Path, app_version: &str) -> Result<UpdateResult> {
     let target = update_target()?;
     let client = http_client()?;
     let Some((manifest, package_url)) = fetch_manifest(&client, target)? else {
@@ -420,11 +369,6 @@ fn update_application(
 
     let cache = update_cache_directory(target, &manifest.version)?;
     let archive = cache.join(format!("KumoRust-{target}-{}.zip", manifest.version));
-    toast.begin_progress(
-        "KumoRust 应用更新",
-        &format!("正在下载版本 {}", manifest.version),
-    );
-
     let expected_hash = parse_sha256(&manifest.sha256)?;
     let archive_is_valid =
         archive.is_file() && file_matches_hash_and_size(&archive, &expected_hash, manifest.size)?;
@@ -433,15 +377,12 @@ fn update_application(
             fs::remove_file(&archive)
                 .map_err(|error| io_error("删除损坏的应用更新缓存失败", error))?;
         }
-        download_file(&client, &package_url, &archive, manifest.size, toast)?;
+        download_file(&client, &package_url, &archive, manifest.size)?;
         if !file_matches_hash_and_size(&archive, &expected_hash, manifest.size)? {
             return Err(app_error("应用更新包 SHA-256 校验失败"));
         }
-    } else {
-        toast.update_progress(1.0, "已使用已验证的更新缓存", "已缓存");
     }
 
-    toast.update_progress(1.0, "下载完成，正在准备安装", "准备中");
     let package_directory = cache.join(format!("package-{}", std::process::id()));
     if package_directory.exists() {
         fs::remove_dir_all(&package_directory)
@@ -455,7 +396,6 @@ fn update_application(
     }
     validate_update_payload(&package_directory)?;
 
-    toast.update_progress(1.0, "正在退出旧版本并安装更新", "安装中");
     spawn_apply_helper(&package_directory, install_directory)?;
     Ok(UpdateResult::HelperStarted)
 }
@@ -567,7 +507,6 @@ fn download_file(
     url: &Url,
     destination: &Path,
     expected_size: Option<u64>,
-    toast: &mut ToastReporter,
 ) -> Result<()> {
     require_https_url(url, "下载地址")?;
     let partial = path_with_suffix(destination, ".part");
@@ -583,7 +522,6 @@ fn download_file(
             )));
         }
 
-        let total = response.content_length().or(expected_size);
         if let (Some(actual), Some(expected)) = (response.content_length(), expected_size)
             && actual != expected
         {
@@ -599,8 +537,6 @@ fn download_file(
             File::create(&partial).map_err(|error| io_error("创建下载缓存文件失败", error))?;
         let mut buffer = [0_u8; DOWNLOAD_BUFFER_SIZE];
         let mut downloaded = 0_u64;
-        let mut last_update = Instant::now();
-        let mut last_update_bytes = 0_u64;
 
         loop {
             let read = response
@@ -613,15 +549,6 @@ fn download_file(
                 .write_all(&buffer[..read])
                 .map_err(|error| io_error("写入下载缓存失败", error))?;
             downloaded += read as u64;
-
-            let should_update = downloaded.saturating_sub(last_update_bytes)
-                >= DOWNLOAD_UPDATE_BYTES
-                || last_update.elapsed() >= Duration::from_millis(750);
-            if should_update {
-                toast.download_progress(downloaded, total);
-                last_update = Instant::now();
-                last_update_bytes = downloaded;
-            }
         }
         output
             .flush()
@@ -640,7 +567,6 @@ fn download_file(
             fs::remove_file(destination).map_err(|error| io_error("替换旧下载缓存失败", error))?;
         }
         fs::rename(&partial, destination).map_err(|error| io_error("保存下载文件失败", error))?;
-        toast.download_progress(downloaded, Some(downloaded));
         Ok(())
     })();
 
@@ -799,24 +725,19 @@ fn run_apply_helper(
     install_directory: &Path,
     parent_pid: u32,
 ) -> Result<()> {
-    initialize_com()?;
     let current_helper = current_executable()?;
-    let shortcut_target = install_directory.join("updater.exe");
-    let toast = ToastReporter::new(&shortcut_target);
 
     wait_for_process(parent_pid)?;
     let result = replace_application_files(package_directory, install_directory);
     if let Err(error) = result {
-        toast.show_message("应用更新失败", &format!("{error}"));
+        eprintln!("KumoRust update failed: {error}");
         let _ = launch_application(install_directory);
         return Err(error);
     }
 
     let launch_result = launch_application(install_directory);
     if let Err(error) = &launch_result {
-        toast.show_message("应用更新完成，但启动失败", &format!("{error}"));
-    } else {
-        toast.show_message("KumoRust 更新完成", "已启动最新版本");
+        eprintln!("KumoRust update installed, but launch failed: {error}");
     }
     let _ = fs::remove_dir_all(package_directory);
     schedule_self_delete(&current_helper);
@@ -912,23 +833,33 @@ fn wait_for_process(pid: u32) -> Result<()> {
     if pid == 0 || pid == std::process::id() {
         return Err(app_error("无法等待指定的进程"));
     }
-    let process = unsafe { OpenProcess(SYNCHRONIZE as u32, false, pid) };
-    if process.0.is_null() {
-        return Ok(());
+    let filter = format!("PID eq {pid}");
+    loop {
+        let output = Command::new("tasklist")
+            .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+            .output()
+            .map_err(|error| io_error("检查旧进程状态失败", error))?;
+        if !output.status.success() {
+            return Err(app_error(format!("tasklist 返回状态 {}", output.status)));
+        }
+
+        let process_is_running = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| tasklist_pid(line) == Some(pid));
+        if !process_is_running {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
     }
-    let wait_result = unsafe { WaitForSingleObject(process, u32::MAX) };
-    unsafe {
-        let _ = CloseHandle(process);
-    }
-    if wait_result == WAIT_OBJECT_0 as u32 {
-        Ok(())
-    } else if wait_result == WAIT_FAILED {
-        Err(app_error(format!("等待进程 {pid} 退出失败")))
-    } else {
-        Err(app_error(format!(
-            "等待进程 {pid} 返回未知状态 {wait_result}"
-        )))
-    }
+}
+
+fn tasklist_pid(line: &str) -> Option<u32> {
+    line.splitn(3, ',')
+        .nth(1)?
+        .trim()
+        .trim_matches('"')
+        .parse()
+        .ok()
 }
 
 fn schedule_self_delete(path: &Path) {
@@ -974,217 +905,16 @@ fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(value)
 }
 
-fn io_error(context: &str, error: impl std::fmt::Display) -> Error {
+fn io_error(context: &str, error: impl std::fmt::Display) -> UpdaterError {
     app_error(format!("{context}: {error}"))
 }
 
-fn external_error(context: &str, error: impl std::fmt::Display) -> Error {
+fn external_error(context: &str, error: impl std::fmt::Display) -> UpdaterError {
     app_error(format!("{context}: {error}"))
 }
 
-fn app_error(message: impl Into<String>) -> Error {
-    Error::new(HRESULT(0x8000_4005_u32 as i32), message.into())
-}
-
-struct ToastReporter {
-    notifier: Option<ToastNotifier>,
-    tag: HSTRING,
-    progress_visible: bool,
-}
-
-impl ToastReporter {
-    fn new(shortcut_target: &Path) -> Self {
-        let _ = create_start_menu_shortcut(shortcut_target);
-        let application_id = HSTRING::from(TOAST_APP_ID);
-        let notifier = ToastNotificationManager::CreateToastNotifierWithId(&application_id)
-            .or_else(|_| ToastNotificationManager::CreateToastNotifier())
-            .ok();
-        Self {
-            notifier,
-            tag: HSTRING::from("KumoRust-updater"),
-            progress_visible: false,
-        }
-    }
-
-    fn begin_progress(&mut self, title: &str, message: &str) {
-        let Some(notifier) = &self.notifier else {
-            return;
-        };
-        let Ok(document) = windows::Data::Xml::Dom::XmlDocument::new() else {
-            return;
-        };
-        let xml = HSTRING::from(format!(
-            "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text><progress title=\"{}\" value=\"{{progress}}\" status=\"{{status}}\" valueStringOverride=\"{{progressValueString}}\" /></binding></visual></toast>",
-            escape_xml(title),
-            escape_xml(message),
-            escape_xml(title)
-        ));
-        if document.LoadXml(&xml).is_err() {
-            return;
-        }
-        let Ok(notification) = ToastNotification::CreateToastNotification(&document) else {
-            return;
-        };
-        if notification.SetTag(&self.tag).is_err() {
-            return;
-        }
-        let Ok(data) = progress_data(0.0, "正在准备", "准备中") else {
-            return;
-        };
-        if notification.SetData(&data).is_err() || notifier.Show(&notification).is_err() {
-            return;
-        }
-        self.progress_visible = true;
-    }
-
-    fn download_progress(&self, downloaded: u64, total: Option<u64>) {
-        if !self.progress_visible {
-            return;
-        }
-        let (progress, status, value) = match total.filter(|total| *total > 0) {
-            Some(total) => {
-                let progress = (downloaded as f64 / total as f64).clamp(0.0, 1.0);
-                (
-                    progress,
-                    format!(
-                        "已下载 {:.1} MB / {:.1} MB",
-                        downloaded as f64 / 1_048_576.0,
-                        total as f64 / 1_048_576.0
-                    ),
-                    format!("{:.0}%", progress * 100.0),
-                )
-            }
-            None => (
-                0.0,
-                format!("已下载 {:.1} MB", downloaded as f64 / 1_048_576.0),
-                "下载中".to_string(),
-            ),
-        };
-        self.update_progress(progress, &status, &value);
-    }
-
-    fn update_progress(&self, progress: f64, status: &str, value: &str) {
-        let Some(notifier) = &self.notifier else {
-            return;
-        };
-        let Ok(data) = progress_data(progress, status, value) else {
-            return;
-        };
-        let _ = notifier.UpdateWithTag(&data, &self.tag);
-    }
-
-    fn show_message(&self, heading: &str, message: &str) {
-        let Some(notifier) = &self.notifier else {
-            return;
-        };
-        let Ok(document) = windows::Data::Xml::Dom::XmlDocument::new() else {
-            return;
-        };
-        let xml = HSTRING::from(format!(
-            "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>",
-            escape_xml(heading),
-            escape_xml(message)
-        ));
-        if document.LoadXml(&xml).is_err() {
-            return;
-        }
-        let Ok(notification) = ToastNotification::CreateToastNotification(&document) else {
-            return;
-        };
-        if notification.SetTag(&self.tag).is_err() {
-            return;
-        }
-        let _ = notifier.Show(&notification);
-    }
-}
-
-fn progress_data(progress: f64, status: &str, value: &str) -> Result<NotificationData> {
-    let data = NotificationData::new()?;
-    let values = data.Values()?;
-    values.Insert(
-        &HSTRING::from("progress"),
-        &HSTRING::from(format!("{progress:.4}")),
-    )?;
-    values.Insert(&HSTRING::from("status"), &HSTRING::from(status))?;
-    values.Insert(&HSTRING::from("progressValueString"), &HSTRING::from(value))?;
-    Ok(data)
-}
-
-fn escape_xml(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-fn create_start_menu_shortcut(target: &Path) -> Result<()> {
-    let appdata = std::env::var_os("APPDATA")
-        .ok_or_else(|| app_error("APPDATA 不可用，无法注册 Windows toast"))?;
-    let shortcut_directory = PathBuf::from(appdata)
-        .join("Microsoft")
-        .join("Windows")
-        .join("Start Menu")
-        .join("Programs");
-    fs::create_dir_all(&shortcut_directory)
-        .map_err(|error| io_error("创建开始菜单目录失败", error))?;
-
-    let shortcut_path = shortcut_directory.join("KumoRust.lnk");
-    let executable_wide = wide_string(target);
-    let shortcut_wide = wide_string(&shortcut_path);
-    let app_id_wide = wide_string_from_str(TOAST_APP_ID);
-
-    let link: IShellLinkW = unsafe { CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER) }?;
-    unsafe {
-        link.SetPath(PCWSTR::from_raw(executable_wide.as_ptr()))
-            .ok()?;
-    }
-
-    let app_id_variant = propvariant_string(&app_id_wide);
-    let property_store: IPropertyStore = link.cast()?;
-    unsafe {
-        property_store
-            .SetValue(&PKEY_AppUserModel_ID, &app_id_variant)
-            .ok()?;
-        property_store.Commit().ok()?;
-    }
-
-    let persist_file: IPersistFile = link.cast()?;
-    unsafe {
-        persist_file
-            .Save(PCWSTR::from_raw(shortcut_wide.as_ptr()), true)
-            .ok()?;
-    }
-    Ok(())
-}
-
-fn wide_string(path: &Path) -> Vec<u16> {
-    path.as_os_str()
-        .to_string_lossy()
-        .encode_utf16()
-        .chain([0])
-        .collect()
-}
-
-fn wide_string_from_str(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain([0]).collect()
-}
-
-fn propvariant_string(value: &[u16]) -> PROPVARIANT {
-    PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                vt: VARTYPE(VT_LPWSTR as u16),
-                wReserved1: PROPVAR_PAD1(0),
-                wReserved2: PROPVAR_PAD2(0),
-                wReserved3: PROPVAR_PAD3(0),
-                Anonymous: PROPVARIANT_0_0_0 {
-                    pwszVal: PWSTR::from_raw(value.as_ptr() as *mut u16),
-                },
-            }),
-        },
-    }
+fn app_error(message: impl Into<String>) -> UpdaterError {
+    UpdaterError(message.into())
 }
 
 #[cfg(test)]
@@ -1254,6 +984,15 @@ mod tests {
         assert_eq!(parse_sha256(&"ab".repeat(32)).unwrap()[0], 0xab);
         assert_eq!(parse_sha256(&"AB".repeat(32)).unwrap()[0], 0xab);
         assert!(parse_sha256("not-a-sha256").is_err());
+    }
+
+    #[test]
+    fn parses_tasklist_csv_pid() {
+        assert_eq!(
+            tasklist_pid("\"kumorust.exe\",\"1234\",\"Console\",\"1\",\"42 K\""),
+            Some(1234)
+        );
+        assert_eq!(tasklist_pid("INFO: No tasks are running"), None);
     }
 
     #[test]
