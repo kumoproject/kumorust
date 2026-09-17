@@ -154,9 +154,10 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
 
 /// The root MVU component.
 ///
-/// `create` initializes the model and boots the first scan, `update` reduces
-/// messages through the root reducer, `view` renders the model through the
-/// feature views.
+/// `create` initializes the model without touching indexed folders, `update`
+/// reduces messages through the root reducer, and `view` renders the model
+/// through the feature views. Library scans start only from an explicit user
+/// action or a folder-list change.
 pub struct KumoApp {
     model: AppModel,
 }
@@ -165,19 +166,11 @@ impl Component for KumoApp {
     type Message = AppMessage;
     type Input = ();
 
-    fn create(_input: &(), context: &ComponentContext<Self>) -> Self {
+    fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
         tray::ensure_initialized();
-
-        // Bootstrap: scan the configured folders exactly once at startup.
-        let mut model = AppModel::new();
-        if let AppEffect::Scan {
-            generation,
-            folders,
-        } = update(&mut model, AppMessage::Library(LibraryMessage::Refresh))
-        {
-            context.spawn_background(move |_token| scan_task(generation, &folders));
+        Self {
+            model: AppModel::new(),
         }
-        Self { model }
     }
 
     fn update(&mut self, message: AppMessage, context: &ComponentContext<Self>) {
@@ -355,4 +348,35 @@ where
         folders: next,
         rescan: true,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::library::ScanStatus;
+
+    #[test]
+    fn new_model_starts_without_a_library_scan() {
+        let model = AppModel::new();
+
+        assert!(model.library.games.is_empty());
+        assert_eq!(model.library.scan, ScanStatus::Idle);
+        assert_eq!(model.library.scan_generation, 0);
+    }
+
+    #[test]
+    fn manual_refresh_still_starts_a_library_scan() {
+        let mut model = AppModel::new();
+
+        let effect = update(&mut model, AppMessage::Library(LibraryMessage::Refresh));
+
+        assert!(matches!(effect, AppEffect::Scan { generation: 1, .. }));
+        assert!(matches!(
+            model.library.scan,
+            ScanStatus::Scanning {
+                inspected: 0,
+                found: 0
+            }
+        ));
+    }
 }

@@ -5,9 +5,15 @@ A Windows game library launcher built with the `windows-reactor` crate from
 
 The WinUI 3 interface uses a Mica backdrop and NavigationView. The library
 page scans configured folders recursively for `.exe` files, displays their
-icons and metadata in horizontal rows, and launches a selected game. Icons are
-cached under `%LOCALAPPDATA%\\KumoRust\\icons` and invalidated when the file
-changes.
+icons and metadata in horizontal rows, and launches a selected game. Scanning
+is manual when the app starts: KumoRust loads the configured folders but does
+not scan them until the user presses Refresh. Adding or removing a folder still
+saves the settings and refreshes the library. Icons are cached under
+`%LOCALAPPDATA%\\KumoRust\\icons` and invalidated when the file changes.
+
+For the complete feature and behavior inventory, including startup side
+effects that are not visible in the main pages, see
+[`docs/kumorust-feature-map.md`](docs/kumorust-feature-map.md).
 
 ## Runtime model
 
@@ -101,4 +107,3 @@ $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
 The published `windows-reactor` dependency uses crates.io version `0.100`.
 The remaining Git-based `windows-rs` dependencies are pinned to commit
 `a8a5d720331920100326c89044f950b703a5b4cd`.
-

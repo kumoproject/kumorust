@@ -78,8 +78,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("library.game_count", "{} 个游戏", "{} games"),
     (
         "library.scan.idle",
-        "准备扫描游戏库",
-        "Ready to scan library",
+        "等待手动扫描游戏库",
+        "Waiting for a manual library scan",
     ),
     (
         "library.scan.running",
@@ -115,6 +115,16 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "library.empty.scanning.body",
         "扫描完成后会显示可启动的 .exe",
         "Launchable .exe files appear after scanning",
+    ),
+    (
+        "library.empty.ready.heading",
+        "游戏库尚未扫描",
+        "Library not scanned yet",
+    ),
+    (
+        "library.empty.ready.body",
+        "点击刷新扫描已索引文件夹中的 .exe",
+        "Click Refresh to scan .exe files in the indexed folders",
     ),
     (
         "library.empty.no_games.heading",

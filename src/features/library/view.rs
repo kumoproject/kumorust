@@ -97,18 +97,24 @@ fn empty_library_state(
             tr("library.empty.no_folders.heading"),
             tr("library.empty.no_folders.body"),
         )
-    } else if matches!(scan_status, ScanStatus::Scanning { .. }) {
-        (
-            "\u{E895}",
-            tr("library.empty.scanning.heading"),
-            tr("library.empty.scanning.body"),
-        )
     } else {
-        (
-            "\u{E7FC}",
-            tr("library.empty.no_games.heading"),
-            tr("library.empty.no_games.body"),
-        )
+        match scan_status {
+            ScanStatus::Idle => (
+                "\u{E72C}",
+                tr("library.empty.ready.heading"),
+                tr("library.empty.ready.body"),
+            ),
+            ScanStatus::Scanning { .. } => (
+                "\u{E895}",
+                tr("library.empty.scanning.heading"),
+                tr("library.empty.scanning.body"),
+            ),
+            ScanStatus::Complete { .. } => (
+                "\u{E7FC}",
+                tr("library.empty.no_games.heading"),
+                tr("library.empty.no_games.body"),
+            ),
+        }
     };
 
     let mut content: Vec<View> = Vec::new();
