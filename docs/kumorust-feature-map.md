@@ -219,7 +219,7 @@ flowchart LR
 这条路径与应用版本更新分开：
 
 - 主程序每次成为第一个实例后检查 Windows App SDK `2.4.0` 最低版本，以及同一主版本 `2.x` 的兼容性。
-- 检查 Framework、Main、Singleton package family、发布者、架构和最低版本；DDLM family 按已发现的最高兼容 Framework release 动态检查，不固定为 `2.4.0`。
+- 启动门槛只检查 `windows-reactor` 实际 bootstrap 使用的 Framework package family、发布者、架构和最低版本；不因 Main、Singleton 或版本化 DDLM 的注册差异误判 runtime 缺失。
 - Windows App SDK `3.x` 不满足当前应用的 runtime 要求。
 - 缺失时通过同目录的 updater 下载固定 Microsoft Learn `aka.ms` 安装器。
 - 安装器下载到 runtime 缓存目录，使用内置 SHA-256 校验；有效缓存可复用。

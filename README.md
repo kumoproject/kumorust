@@ -19,13 +19,13 @@ effects that are not visible in the main pages, see
 
 The application is framework-dependent. The main program requires Windows App
 SDK 2.4.0 or a newer runtime in the same major 2 line, and checks the required
-package identities plus the matching DDLM package before calling
-`windows_reactor::bootstrap()`. A future Windows App SDK 3.x runtime does not
-satisfy this requirement.
-If the packages are missing, it passes a `runtime-spec` for the tested 2.4.0
+Framework package before calling `windows_reactor::bootstrap()`. A future
+Windows App SDK 3.x runtime does not satisfy this requirement. The installer
+still deploys the complete runtime package set when the Framework is absent.
+If the Framework is missing, it passes a `runtime-spec` for the tested 2.4.0
 installer (version, architecture, package identities, installer URL, and
 SHA-256) to `updater.exe`, waits for the installer to finish, and checks the
-packages again.
+Framework again.
 
 `updater.exe` is an internal helper and ignores a plain double-click. When
 called by the main program it:

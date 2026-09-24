@@ -71,52 +71,19 @@ fn runtime_is_installed(spec: &update::RuntimeSpec) -> windows::core::Result<boo
         .ok_or_else(|| updater_error("runtime-spec 缺少 Framework package identity"))?;
     let required_framework_version = parse_package_minimum_version(framework)?;
     let framework_family = format!("{}_{}", framework.name, framework.publisher_id);
-    let framework_packages = package_family_full_names(&framework_family)?;
-    let Some(framework_version) = framework_packages
-        .iter()
-        .filter_map(|full_name| {
-            update::package_full_name_version(
-                full_name,
+    // Match windows-reactor's bootstrap contract: the app starts by resolving
+    // the Framework package. The installer still deploys the complete bundle.
+    Ok(package_family_full_names(&framework_family)?
+        .into_iter()
+        .any(|full_name| {
+            update::package_full_name_matches(
+                &full_name,
                 &framework.name,
                 &framework.publisher_id,
                 &spec.architecture,
+                required_framework_version,
             )
-        })
-        .filter(|version| {
-            version.0 == required_framework_version.0 && *version >= required_framework_version
-        })
-        .max()
-    else {
-        return Ok(false);
-    };
-
-    for package in &spec.package_identities {
-        if package.name == framework.name {
-            continue;
-        }
-        let required_version = parse_package_minimum_version(package)?;
-        let family_name = format!("{}_{}", package.name, package.publisher_id);
-        if !package_family_has_version(
-            &family_name,
-            &package.name,
-            &package.publisher_id,
-            &spec.architecture,
-            required_version,
-        )? {
-            return Ok(false);
-        }
-    }
-
-    // DDLM family names include the exact framework release, so derive the
-    // family from the highest compatible Framework package found above.
-    if !ddlm_has_framework_version(
-        framework_version,
-        &spec.architecture,
-        &framework.publisher_id,
-    )? {
-        return Ok(false);
-    }
-    Ok(true)
+        }))
 }
 
 fn parse_package_minimum_version(
@@ -128,53 +95,6 @@ fn parse_package_minimum_version(
             package.name, package.minimum_version
         ))
     })
-}
-
-fn ddlm_has_framework_version(
-    framework_version: (u16, u16, u16, u16),
-    architecture: &str,
-    publisher_id: &str,
-) -> windows::core::Result<bool> {
-    let Some(architecture_tag) = (match architecture {
-        "x86" => Some("x8"),
-        "x64" => Some("x6"),
-        "arm64" => Some("a6"),
-        _ => None,
-    }) else {
-        return Ok(false);
-    };
-    let package_name = format!(
-        "Microsoft.WinAppRuntime.DDLM.{}.{}.{}.{}-{architecture_tag}",
-        framework_version.0, framework_version.1, framework_version.2, framework_version.3
-    );
-    let family_name = format!("{package_name}_{publisher_id}");
-    package_family_has_version(
-        &family_name,
-        &package_name,
-        publisher_id,
-        architecture,
-        framework_version,
-    )
-}
-
-fn package_family_has_version(
-    family_name: &str,
-    package_name: &str,
-    publisher_id: &str,
-    expected_architecture: &str,
-    required_version: (u16, u16, u16, u16),
-) -> windows::core::Result<bool> {
-    Ok(package_family_full_names(family_name)?
-        .into_iter()
-        .any(|full_name| {
-            update::package_full_name_matches(
-                &full_name,
-                package_name,
-                publisher_id,
-                expected_architecture,
-                required_version,
-            )
-        }))
 }
 
 fn package_family_full_names(family_name: &str) -> windows::core::Result<Vec<String>> {
