@@ -12,7 +12,18 @@ use windows::core::{Error, HRESULT, HSTRING, PWSTR, WIN32_ERROR};
 use crate::core::error;
 use crate::domain::update;
 
-pub fn ensure_runtime() -> windows::core::Result<()> {
+/// Ensures the Windows App SDK runtime when possible.
+///
+/// Runtime setup is best-effort during application startup. A failure is
+/// reported for diagnostics, but must not prevent the main application from
+/// starting.
+pub fn ensure_runtime() {
+    if let Err(error) = try_ensure_runtime() {
+        eprintln!("Windows App SDK runtime 检查或安装失败：{error}");
+    }
+}
+
+fn try_ensure_runtime() -> windows::core::Result<()> {
     let Some(spec) = update::runtime_spec() else {
         return Err(updater_error(format!(
             "不支持的 Windows App SDK architecture: {}",

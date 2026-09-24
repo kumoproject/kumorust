@@ -26,7 +26,7 @@ fn main() -> windows::core::Result<()> {
         return Ok(());
     }
 
-    updater::ensure_runtime()?;
+    updater::ensure_runtime();
     App::run_component::<KumoApp>(())
         .map_err(|error| Error::new(HRESULT(error.code().0), error.message()))
 }
