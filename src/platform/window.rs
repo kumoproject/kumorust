@@ -4,7 +4,8 @@ use windows::Win32::commctrl::{DefSubclassProc, RemoveWindowSubclass, SetWindowS
 use windows::Win32::minwindef::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::windef::HWND;
 use windows::Win32::winuser::{
-    FindWindowW, SW_HIDE, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_CLOSE, WM_NCDESTROY,
+    FindWindowW, PostMessageW, SW_HIDE, SW_RESTORE, SetForegroundWindow, ShowWindow, WM_CLOSE,
+    WM_NCDESTROY,
 };
 use windows::core::PCWSTR;
 
@@ -13,10 +14,24 @@ pub(crate) const MAIN_WINDOW_TITLE: &str = "kumokumo";
 const CLOSE_SUBCLASS_ID: usize = 0x4b;
 
 static CLOSE_SUBCLASS_INSTALLED: AtomicBool = AtomicBool::new(false);
+static ALLOW_CLOSE: AtomicBool = AtomicBool::new(false);
 
-/// Ends the process; used by the tray "退出" item.
-pub(crate) fn exit_application() {
-    std::process::exit(0);
+/// Requests a normal application close from the tray "退出" item.
+pub(crate) fn request_exit_application() {
+    let Some(hwnd) = find_window(MAIN_WINDOW_TITLE) else {
+        return;
+    };
+
+    let subclass_installed = CLOSE_SUBCLASS_INSTALLED.load(Ordering::Acquire);
+    if subclass_installed {
+        ALLOW_CLOSE.store(true, Ordering::Release);
+    }
+
+    let posted =
+        unsafe { PostMessageW(Some(hwnd), WM_CLOSE as u32, WPARAM(0), LPARAM(0)).as_bool() };
+    if subclass_installed && !posted {
+        ALLOW_CLOSE.store(false, Ordering::Release);
+    }
 }
 
 /// Activates the existing main window (tray item "启动主界面").
@@ -79,6 +94,10 @@ unsafe extern "system" fn close_to_hide_subclass_proc(
     _ref_data: usize,
 ) -> LRESULT {
     if message == WM_CLOSE as u32 {
+        if ALLOW_CLOSE.swap(false, Ordering::AcqRel) {
+            return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+        }
+
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
@@ -87,6 +106,7 @@ unsafe extern "system" fn close_to_hide_subclass_proc(
 
     if message == WM_NCDESTROY as u32 {
         CLOSE_SUBCLASS_INSTALLED.store(false, Ordering::Release);
+        ALLOW_CLOSE.store(false, Ordering::Release);
         unsafe {
             let _ =
                 RemoveWindowSubclass(hwnd, Some(close_to_hide_subclass_proc), CLOSE_SUBCLASS_ID);

@@ -220,7 +220,7 @@ fn show_context_menu(hwnd: HWND) {
 
         match command {
             SHOW_MENU_ID => crate::platform::window::activate_main_window(),
-            EXIT_MENU_ID => crate::platform::window::exit_application(),
+            EXIT_MENU_ID => crate::platform::window::request_exit_application(),
             _ => {}
         }
     }
