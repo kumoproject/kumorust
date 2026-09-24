@@ -64,14 +64,37 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
 }
 
 fn runtime_is_installed(spec: &update::RuntimeSpec) -> windows::core::Result<bool> {
+    let framework = spec
+        .package_identities
+        .iter()
+        .find(|package| package.name == update::RUNTIME_PACKAGE_NAME)
+        .ok_or_else(|| updater_error("runtime-spec 缺少 Framework package identity"))?;
+    let required_framework_version = parse_package_minimum_version(framework)?;
+    let framework_family = format!("{}_{}", framework.name, framework.publisher_id);
+    let framework_packages = package_family_full_names(&framework_family)?;
+    let Some(framework_version) = framework_packages
+        .iter()
+        .filter_map(|full_name| {
+            update::package_full_name_version(
+                full_name,
+                &framework.name,
+                &framework.publisher_id,
+                &spec.architecture,
+            )
+        })
+        .filter(|version| {
+            version.0 == required_framework_version.0 && *version >= required_framework_version
+        })
+        .max()
+    else {
+        return Ok(false);
+    };
+
     for package in &spec.package_identities {
-        let required_version =
-            update::parse_runtime_version(&package.minimum_version).ok_or_else(|| {
-                updater_error(format!(
-                    "runtime package {} 的最低版本无效: {}",
-                    package.name, package.minimum_version
-                ))
-            })?;
+        if package.name == framework.name {
+            continue;
+        }
+        let required_version = parse_package_minimum_version(package)?;
         let family_name = format!("{}_{}", package.name, package.publisher_id);
         if !package_family_has_version(
             &family_name,
@@ -83,7 +106,55 @@ fn runtime_is_installed(spec: &update::RuntimeSpec) -> windows::core::Result<boo
             return Ok(false);
         }
     }
+
+    // DDLM family names include the exact framework release, so derive the
+    // family from the highest compatible Framework package found above.
+    if !ddlm_has_framework_version(
+        framework_version,
+        &spec.architecture,
+        &framework.publisher_id,
+    )? {
+        return Ok(false);
+    }
     Ok(true)
+}
+
+fn parse_package_minimum_version(
+    package: &update::RuntimePackageIdentity,
+) -> windows::core::Result<(u16, u16, u16, u16)> {
+    update::parse_runtime_version(&package.minimum_version).ok_or_else(|| {
+        updater_error(format!(
+            "runtime package {} 的最低版本无效: {}",
+            package.name, package.minimum_version
+        ))
+    })
+}
+
+fn ddlm_has_framework_version(
+    framework_version: (u16, u16, u16, u16),
+    architecture: &str,
+    publisher_id: &str,
+) -> windows::core::Result<bool> {
+    let Some(architecture_tag) = (match architecture {
+        "x86" => Some("x8"),
+        "x64" => Some("x6"),
+        "arm64" => Some("a6"),
+        _ => None,
+    }) else {
+        return Ok(false);
+    };
+    let package_name = format!(
+        "Microsoft.WinAppRuntime.DDLM.{}.{}.{}.{}-{architecture_tag}",
+        framework_version.0, framework_version.1, framework_version.2, framework_version.3
+    );
+    let family_name = format!("{package_name}_{publisher_id}");
+    package_family_has_version(
+        &family_name,
+        &package_name,
+        publisher_id,
+        architecture,
+        framework_version,
+    )
 }
 
 fn package_family_has_version(
@@ -93,6 +164,20 @@ fn package_family_has_version(
     expected_architecture: &str,
     required_version: (u16, u16, u16, u16),
 ) -> windows::core::Result<bool> {
+    Ok(package_family_full_names(family_name)?
+        .into_iter()
+        .any(|full_name| {
+            update::package_full_name_matches(
+                &full_name,
+                package_name,
+                publisher_id,
+                expected_architecture,
+                required_version,
+            )
+        }))
+}
+
+fn package_family_full_names(family_name: &str) -> windows::core::Result<Vec<String>> {
     let family_name_hstring = HSTRING::from(family_name);
     let mut count = 0_u32;
     let mut buffer_length = 0_u32;
@@ -106,7 +191,7 @@ fn package_family_has_version(
         )
     };
     if update::is_missing_package_status(status) {
-        return Ok(false);
+        return Ok(Vec::new());
     }
     if status != 0 && status != ERROR_INSUFFICIENT_BUFFER {
         return Err(win32_error(
@@ -115,7 +200,7 @@ fn package_family_has_version(
         ));
     }
     if count == 0 {
-        return Ok(false);
+        return Ok(Vec::new());
     }
 
     let mut package_full_names = vec![PWSTR::null(); count as usize];
@@ -130,7 +215,7 @@ fn package_family_has_version(
         )
     };
     if update::is_missing_package_status(status) {
-        return Ok(false);
+        return Ok(Vec::new());
     }
     if status != 0 {
         return Err(win32_error(
@@ -139,24 +224,17 @@ fn package_family_has_version(
         ));
     }
 
+    let mut names = Vec::with_capacity(count as usize);
     for package_full_name in package_full_names.into_iter().take(count as usize) {
         if package_full_name.is_null() {
             continue;
         }
         let package_full_name = unsafe { package_full_name.to_string() }
             .map_err(|error| updater_error(format!("已安装 package 名称无效: {error}")))?;
-        if update::package_full_name_matches(
-            &package_full_name,
-            package_name,
-            publisher_id,
-            expected_architecture,
-            required_version,
-        ) {
-            return Ok(true);
-        }
+        names.push(package_full_name);
     }
 
-    Ok(false)
+    Ok(names)
 }
 
 fn win32_error(context: String, status: i32) -> Error {

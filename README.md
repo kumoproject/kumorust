@@ -17,12 +17,15 @@ effects that are not visible in the main pages, see
 
 ## Runtime model
 
-The application is framework-dependent. The main program owns its Windows App
-SDK requirement and checks the required package identities before calling
-`windows_reactor::bootstrap()`.
-If the packages are missing, it passes a complete `runtime-spec` (version,
-architecture, package identities, installer URL, and SHA-256) to `updater.exe`,
-waits for the installer to finish, and checks the packages again.
+The application is framework-dependent. The main program requires Windows App
+SDK 2.4.0 or a newer runtime in the same major 2 line, and checks the required
+package identities plus the matching DDLM package before calling
+`windows_reactor::bootstrap()`. A future Windows App SDK 3.x runtime does not
+satisfy this requirement.
+If the packages are missing, it passes a `runtime-spec` for the tested 2.4.0
+installer (version, architecture, package identities, installer URL, and
+SHA-256) to `updater.exe`, waits for the installer to finish, and checks the
+packages again.
 
 `updater.exe` is an internal helper and ignores a plain double-click. When
 called by the main program it:
@@ -34,9 +37,10 @@ called by the main program it:
 - updates both `kumorust.exe` and `updater.exe`, then starts the application.
 
 The runtime installer is downloaded from the fixed Microsoft Learn download
-channel (`aka.ms/windowsappsdk/2.4/2.4.0/...`), not from NuGet. NuGet is useful
-for build-time packaging, but the official per-architecture installer is
-smaller and owns the correct framework package installation sequence.
+channel (`aka.ms/windowsappsdk/2.4/2.4.0/...`), not from NuGet. It is only used
+when no compatible runtime is installed. NuGet is useful for build-time
+packaging, but the official per-architecture installer is smaller and owns the
+correct framework package installation sequence.
 
 ## Build and run
 
@@ -45,7 +49,8 @@ Requirements:
 - Windows
 - Rust with the MSVC toolchain
 - Visual Studio Build Tools with the MSVC linker and Windows SDK
-- Internet access on the first run if Windows App SDK 2.4 is not installed
+- Internet access on the first run if Windows App SDK 2.4 or a compatible newer
+  2.x runtime is not installed
 
 Start the main program directly. It uses `updater.exe` only when the required
 runtime is missing:

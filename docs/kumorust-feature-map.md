@@ -218,8 +218,9 @@ flowchart LR
 
 这条路径与应用版本更新分开：
 
-- 主程序每次成为第一个实例后检查固定的 Windows App SDK `2.4.0` runtime。
-- 检查多个 package family、发布者、架构和最低版本。
+- 主程序每次成为第一个实例后检查 Windows App SDK `2.4.0` 最低版本，以及同一主版本 `2.x` 的兼容性。
+- 检查 Framework、Main、Singleton package family、发布者、架构和最低版本；DDLM family 按已发现的最高兼容 Framework release 动态检查，不固定为 `2.4.0`。
+- Windows App SDK `3.x` 不满足当前应用的 runtime 要求。
 - 缺失时通过同目录的 updater 下载固定 Microsoft Learn `aka.ms` 安装器。
 - 安装器下载到 runtime 缓存目录，使用内置 SHA-256 校验；有效缓存可复用。
 - 以 quiet 模式安装，退出码 `3010` 视为可接受的重启提示。

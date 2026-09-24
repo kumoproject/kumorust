@@ -45,24 +45,21 @@ pub struct RuntimePackageIdentity {
 }
 
 pub fn runtime_spec() -> Option<RuntimeSpec> {
-    let (architecture, installer_url, sha256, ddlm_name) = match std::env::consts::ARCH {
+    let (architecture, installer_url, sha256) = match std::env::consts::ARCH {
         "x86" => (
             "x86",
             RUNTIME_INSTALLER_X86_URL,
             RUNTIME_INSTALLER_X86_SHA256,
-            "Microsoft.WinAppRuntime.DDLM.2.4.0.0-x8",
         ),
         "x86_64" => (
             "x64",
             RUNTIME_INSTALLER_X64_URL,
             RUNTIME_INSTALLER_X64_SHA256,
-            "Microsoft.WinAppRuntime.DDLM.2.4.0.0-x6",
         ),
         "aarch64" => (
             "arm64",
             RUNTIME_INSTALLER_ARM64_URL,
             RUNTIME_INSTALLER_ARM64_SHA256,
-            "Microsoft.WinAppRuntime.DDLM.2.4.0.0-a6",
         ),
         _ => return None,
     };
@@ -80,7 +77,6 @@ pub fn runtime_spec() -> Option<RuntimeSpec> {
             package(RUNTIME_PACKAGE_NAME, format!("{RUNTIME_VERSION}.0")),
             package(MAIN_PACKAGE_NAME, format!("{RUNTIME_VERSION}.0")),
             package(SINGLETON_PACKAGE_NAME, format!("800{RUNTIME_VERSION}.0")),
-            package(ddlm_name, format!("{RUNTIME_VERSION}.0")),
         ],
         installer_url: installer_url.to_string(),
         sha256: sha256.to_string(),
@@ -105,31 +101,114 @@ pub fn package_full_name_matches(
     expected_architecture: &str,
     required_version: (u16, u16, u16, u16),
 ) -> bool {
-    let Some(remainder) = full_name.strip_prefix(&format!("{package_name}_")) else {
-        return false;
-    };
-    let mut components = remainder.split('_');
-    let Some(version) = components.next().and_then(parse_runtime_version) else {
-        return false;
-    };
-    let Some(architecture) = components.next() else {
-        return false;
-    };
-    let Some(_resource_id) = components.next() else {
-        return false;
-    };
-    let Some(found_publisher_id) = components.next() else {
+    // A newer release is usable only when it stays within the tested major line.
+    let Some(version) =
+        package_full_name_version(full_name, package_name, publisher_id, expected_architecture)
+    else {
         return false;
     };
 
-    components.next().is_none()
+    version.0 == required_version.0 && version >= required_version
+}
+
+pub fn package_full_name_version(
+    full_name: &str,
+    package_name: &str,
+    publisher_id: &str,
+    expected_architecture: &str,
+) -> Option<(u16, u16, u16, u16)> {
+    let Some(remainder) = full_name.strip_prefix(&format!("{package_name}_")) else {
+        return None;
+    };
+    let mut components = remainder.split('_');
+    let version = components.next().and_then(parse_runtime_version)?;
+    let architecture = components.next()?;
+    let _resource_id = components.next()?;
+    let found_publisher_id = components.next()?;
+
+    (components.next().is_none()
         && architecture == expected_architecture
-        && found_publisher_id == publisher_id
-        && version >= required_version
+        && found_publisher_id == publisher_id)
+        .then_some(version)
 }
 
 pub fn is_missing_package_status(status: i32) -> bool {
     status == windows::Win32::winerror::APPMODEL_ERROR_NO_PACKAGE
         || status == windows::Win32::winerror::ERROR_FILE_NOT_FOUND
         || status == windows::Win32::winerror::ERROR_NOT_FOUND
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PUBLISHER_ID: &str = "8wekyb3d8bbwe";
+
+    #[test]
+    fn accepts_newer_runtime_within_the_same_major_version() {
+        assert!(package_full_name_matches(
+            "Microsoft.WindowsAppRuntime.2_2.5.1.0_x64__8wekyb3d8bbwe",
+            RUNTIME_PACKAGE_NAME,
+            PUBLISHER_ID,
+            "x64",
+            (2, 4, 0, 0),
+        ));
+    }
+
+    #[test]
+    fn extracts_a_valid_package_version() {
+        assert_eq!(
+            package_full_name_version(
+                "Microsoft.WindowsAppRuntime.2_2.5.1.0_x64__8wekyb3d8bbwe",
+                RUNTIME_PACKAGE_NAME,
+                PUBLISHER_ID,
+                "x64",
+            ),
+            Some((2, 5, 1, 0))
+        );
+    }
+
+    #[test]
+    fn rejects_a_runtime_from_a_different_major_version() {
+        assert!(!package_full_name_matches(
+            "Microsoft.WindowsAppRuntime.2_3.0.0.0_x64__8wekyb3d8bbwe",
+            RUNTIME_PACKAGE_NAME,
+            PUBLISHER_ID,
+            "x64",
+            (2, 4, 0, 0),
+        ));
+    }
+
+    #[test]
+    fn rejects_a_runtime_below_the_minimum_version() {
+        assert!(!package_full_name_matches(
+            "Microsoft.WindowsAppRuntime.2_2.0.1.0_x64__8wekyb3d8bbwe",
+            RUNTIME_PACKAGE_NAME,
+            PUBLISHER_ID,
+            "x64",
+            (2, 4, 0, 0),
+        ));
+    }
+
+    #[test]
+    fn accepts_newer_singleton_versions() {
+        assert!(package_full_name_matches(
+            "MicrosoftCorporationII.WinAppRuntime.Singleton_8002.5.1.0_x64__8wekyb3d8bbwe",
+            SINGLETON_PACKAGE_NAME,
+            PUBLISHER_ID,
+            "x64",
+            (8002, 4, 0, 0),
+        ));
+    }
+
+    #[test]
+    fn accepts_a_newer_versioned_ddlm_package() {
+        assert!(package_full_name_matches(
+            "Microsoft.WinAppRuntime.DDLM.2.5.1.0-x6_2.5.1.0_x64__8wekyb3d8bbwe",
+            "Microsoft.WinAppRuntime.DDLM.2.5.1.0-x6",
+            PUBLISHER_ID,
+            "x64",
+            (2, 4, 0, 0),
+        ));
+    }
 }
