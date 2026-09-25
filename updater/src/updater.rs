@@ -2,12 +2,12 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fmt, thread};
 
 use reqwest::blocking::Client;
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -16,6 +16,9 @@ const DEFAULT_UPDATE_SOURCE: &str =
     "https://github.com/kumoproject/kumorust/releases/latest/download";
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const DOWNLOAD_BUFFER_SIZE: usize = 128 * 1024;
+const DOWNLOAD_PROGRESS_BYTES: u64 = 512 * 1024;
+const DOWNLOAD_PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+const PROGRESS_PROTOCOL: u32 = 1;
 const UPDATER_INSTANCE_NAME: &str = "KumoRust.updater";
 const REQUIRED_UPDATE_FILES: [&str; 3] = [
     "kumorust.exe",
@@ -65,6 +68,76 @@ struct RuntimePackageIdentity {
     minimum_version: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ProgressEvent<'a> {
+    protocol: u32,
+    #[serde(rename = "type")]
+    event_type: &'a str,
+    phase: &'a str,
+    bytes_done: Option<u64>,
+    bytes_total: Option<u64>,
+    error: Option<&'a str>,
+}
+
+struct ProgressReporter {
+    output: io::Stdout,
+}
+
+impl ProgressReporter {
+    fn new() -> Self {
+        Self {
+            output: io::stdout(),
+        }
+    }
+
+    fn phase(&mut self, phase: &'static str) {
+        self.emit("progress", phase, None, None, None);
+    }
+
+    fn download(&mut self, bytes_done: u64, bytes_total: Option<u64>) {
+        self.emit(
+            "progress",
+            "downloading",
+            Some(bytes_done),
+            bytes_total,
+            None,
+        );
+    }
+
+    fn completed(&mut self) {
+        self.emit("completed", "completed", None, None, None);
+    }
+
+    fn failed(&mut self, error: &UpdaterError) {
+        let message = error.to_string();
+        self.emit("failed", "failed", None, None, Some(&message));
+    }
+
+    fn emit(
+        &mut self,
+        event_type: &'static str,
+        phase: &'static str,
+        bytes_done: Option<u64>,
+        bytes_total: Option<u64>,
+        error: Option<&str>,
+    ) {
+        let event = ProgressEvent {
+            protocol: PROGRESS_PROTOCOL,
+            event_type,
+            phase,
+            bytes_done,
+            bytes_total,
+            error,
+        };
+        let Ok(mut line) = serde_json::to_vec(&event) else {
+            return;
+        };
+        line.push(b'\n');
+        let _ = self.output.write_all(&line);
+        let _ = self.output.flush();
+    }
+}
+
 #[derive(Debug)]
 enum UpdateResult {
     NoUpdate,
@@ -88,11 +161,19 @@ pub fn run() -> Result<()> {
     match parse_command_line()? {
         CommandLine::Ignore => Ok(()),
         CommandLine::InstallRuntime { spec_json } => {
-            let instance = acquire_updater_instance()?;
-            if !instance.is_single() {
-                return Err(app_error("updater 正在运行"));
+            let mut progress = ProgressReporter::new();
+            let result = (|| {
+                let instance = acquire_updater_instance()?;
+                if !instance.is_single() {
+                    return Err(app_error("updater 正在运行"));
+                }
+                run_runtime_install(&spec_json, &mut progress)
+            })();
+            match &result {
+                Ok(()) => progress.completed(),
+                Err(error) => progress.failed(error),
             }
-            run_runtime_install(&spec_json)
+            result
         }
         CommandLine::ApplyUpdate {
             package_directory,
@@ -112,7 +193,8 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn run_runtime_install(spec_json: &str) -> Result<()> {
+fn run_runtime_install(spec_json: &str, progress: &mut ProgressReporter) -> Result<()> {
+    progress.phase("checking");
     let spec: RuntimeSpec = serde_json::from_str(spec_json)
         .map_err(|error| app_error(format!("解析 runtime-spec 失败: {error}")))?;
     let (installer_url, expected_hash) = validate_runtime_spec(&spec)?;
@@ -123,20 +205,33 @@ fn run_runtime_install(spec_json: &str) -> Result<()> {
         spec.version, spec.architecture
     ));
 
+    progress.phase("verifying");
     if !valid_runtime_installer(&installer, &expected_hash)? {
         if installer.is_file() {
             fs::remove_file(&installer)
                 .map_err(|error| io_error("删除损坏的 runtime 缓存失败", error))?;
         }
         let client = http_client()?;
-        download_file(&client, &installer_url, &installer, None)?;
+        download_file(
+            &client,
+            &installer_url,
+            &installer,
+            None,
+            |bytes_done, bytes_total| {
+                progress.download(bytes_done, bytes_total);
+            },
+        )?;
+        progress.phase("verifying");
         if !file_matches_hash_and_size(&installer, &expected_hash, None)? {
             return Err(app_error("Windows App SDK installer SHA-256 校验失败"));
         }
     }
 
+    progress.phase("installing");
     let status = Command::new(&installer)
         .arg("--quiet")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
         .status()
         .map_err(|error| io_error("启动 Windows App SDK installer 失败", error))?;
     let exit_code = status.code();
@@ -377,7 +472,7 @@ fn update_application(install_directory: &Path, app_version: &str) -> Result<Upd
             fs::remove_file(&archive)
                 .map_err(|error| io_error("删除损坏的应用更新缓存失败", error))?;
         }
-        download_file(&client, &package_url, &archive, manifest.size)?;
+        download_file(&client, &package_url, &archive, manifest.size, |_, _| {})?;
         if !file_matches_hash_and_size(&archive, &expected_hash, manifest.size)? {
             return Err(app_error("应用更新包 SHA-256 校验失败"));
         }
@@ -507,6 +602,7 @@ fn download_file(
     url: &Url,
     destination: &Path,
     expected_size: Option<u64>,
+    mut report_progress: impl FnMut(u64, Option<u64>),
 ) -> Result<()> {
     require_https_url(url, "下载地址")?;
     let partial = path_with_suffix(destination, ".part");
@@ -537,6 +633,10 @@ fn download_file(
             File::create(&partial).map_err(|error| io_error("创建下载缓存文件失败", error))?;
         let mut buffer = [0_u8; DOWNLOAD_BUFFER_SIZE];
         let mut downloaded = 0_u64;
+        let total = response.content_length().or(expected_size);
+        let mut last_report = Instant::now();
+        let mut last_reported = 0_u64;
+        report_progress(0, total);
 
         loop {
             let read = response
@@ -549,6 +649,14 @@ fn download_file(
                 .write_all(&buffer[..read])
                 .map_err(|error| io_error("写入下载缓存失败", error))?;
             downloaded += read as u64;
+
+            if downloaded.saturating_sub(last_reported) >= DOWNLOAD_PROGRESS_BYTES
+                || last_report.elapsed() >= DOWNLOAD_PROGRESS_INTERVAL
+            {
+                report_progress(downloaded, total);
+                last_report = Instant::now();
+                last_reported = downloaded;
+            }
         }
         output
             .flush()
@@ -562,6 +670,8 @@ fn download_file(
                 "下载提前结束: received {downloaded} bytes, expected {expected}"
             )));
         }
+
+        report_progress(downloaded, total.or(Some(downloaded)));
 
         if destination.exists() {
             fs::remove_file(destination).map_err(|error| io_error("替换旧下载缓存失败", error))?;
@@ -920,6 +1030,23 @@ fn app_error(message: impl Into<String>) -> UpdaterError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serializes_versioned_progress_event() {
+        let event = ProgressEvent {
+            protocol: PROGRESS_PROTOCOL,
+            event_type: "progress",
+            phase: "downloading",
+            bytes_done: Some(1024),
+            bytes_total: Some(2048),
+            error: None,
+        };
+
+        assert_eq!(
+            serde_json::to_string(&event).unwrap(),
+            r#"{"protocol":1,"type":"progress","phase":"downloading","bytes_done":1024,"bytes_total":2048,"error":null}"#
+        );
+    }
 
     #[test]
     fn ignores_launch_without_internal_arguments() {

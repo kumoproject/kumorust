@@ -25,7 +25,14 @@ still deploys the complete runtime package set when the Framework is absent.
 If the Framework is missing, it passes a `runtime-spec` for the tested 2.4.0
 installer (version, architecture, package identities, installer URL, and
 SHA-256) to `updater.exe`, waits for the installer to finish, and checks the
-Framework again.
+Framework again. During this operation, `updater.exe` writes version 1 JSON
+Lines progress events to stdout. The main program consumes these events through
+a pipe; a broken progress pipe does not cancel the installation.
+
+Runtime progress events use `type` values `progress`, `completed`, and
+`failed`. Progress phases are `checking`, `downloading`, `verifying`, and
+`installing`. Download events include `bytes_done` and `bytes_total` when the
+server provides a content length.
 
 `updater.exe` is an internal helper and ignores a plain double-click. When
 called by the main program it:

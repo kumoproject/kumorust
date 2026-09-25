@@ -2,15 +2,30 @@
 //! and launches the standalone updater. Pure spec/parsing lives in
 //! `domain::update`; UI lives in `features::settings`.
 
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
+use serde::Deserialize;
 use windows::Win32::appmodel::GetPackagesByPackageFamily;
 use windows::Win32::winerror::ERROR_INSUFFICIENT_BUFFER;
 use windows::core::{Error, HRESULT, HSTRING, PWSTR, WIN32_ERROR};
 
 use crate::core::error;
 use crate::domain::update;
+
+const PROGRESS_PROTOCOL: u32 = 1;
+
+#[derive(Debug, Deserialize)]
+struct RuntimeProgressEvent {
+    protocol: u32,
+    #[serde(rename = "type")]
+    event_type: String,
+    phase: String,
+    bytes_done: Option<u64>,
+    bytes_total: Option<u64>,
+    error: Option<String>,
+}
 
 /// Ensures the Windows App SDK runtime when possible.
 ///
@@ -42,11 +57,18 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
     })?;
     let spec_json = serde_json::to_string(&spec)
         .map_err(|error| updater_error(format!("生成 runtime-spec 失败：{error}")))?;
-    let status = Command::new(&updater)
+    let mut child = Command::new(&updater)
         .args(["--from-app", "--install-runtime"])
         .arg(spec_json)
-        .status()
+        .stdout(Stdio::piped())
+        .spawn()
         .map_err(|error| updater_error(format!("启动 runtime 安装器失败：{error}")))?;
+    if let Some(stdout) = child.stdout.take() {
+        consume_runtime_progress(stdout);
+    }
+    let status = child
+        .wait()
+        .map_err(|error| updater_error(format!("等待 runtime 安装器结束失败：{error}")))?;
     if !status.success() {
         return Err(updater_error(format!(
             "runtime 安装器退出状态异常：{status}"
@@ -60,6 +82,40 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
             "runtime 安装器已结束，但未找到 Windows App SDK {}",
             spec.version
         )))
+    }
+}
+
+fn consume_runtime_progress(stdout: impl std::io::Read) {
+    for line in BufReader::new(stdout).lines().map_while(|line| line.ok()) {
+        let Ok(event) = serde_json::from_str::<RuntimeProgressEvent>(&line) else {
+            continue;
+        };
+        if event.protocol != PROGRESS_PROTOCOL {
+            continue;
+        }
+
+        match event.event_type.as_str() {
+            "progress" if event.phase == "downloading" => {
+                if let (Some(done), Some(total)) = (event.bytes_done, event.bytes_total)
+                    && total > 0
+                {
+                    eprintln!(
+                        "Windows App SDK 下载进度：{}% ({done}/{total} bytes)",
+                        done.saturating_mul(100) / total
+                    );
+                } else if let Some(done) = event.bytes_done {
+                    eprintln!("Windows App SDK 已下载：{done} bytes");
+                }
+            }
+            "progress" => eprintln!("Windows App SDK：{}", event.phase),
+            "completed" => eprintln!("Windows App SDK 安装完成"),
+            "failed" => {
+                if let Some(error) = event.error {
+                    eprintln!("Windows App SDK 安装失败：{error}");
+                }
+            }
+            _ => {}
+        }
     }
 }
 

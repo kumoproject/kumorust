@@ -7,7 +7,6 @@ publish = false
 [[bin]]
 name = "updater"
 path = "src/main.rs"
-test = false
 
 [dependencies]
 semver = "1"

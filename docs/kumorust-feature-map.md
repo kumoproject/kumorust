@@ -223,6 +223,7 @@ flowchart LR
 - Windows App SDK `3.x` 不满足当前应用的 runtime 要求。
 - 缺失时通过同目录的 updater 下载固定 Microsoft Learn `aka.ms` 安装器。
 - 安装器下载到 runtime 缓存目录，使用内置 SHA-256 校验；有效缓存可复用。
+- updater 通过 stdout JSON Lines（`protocol: 1`）向主程序报告 `checking`、`downloading`、`verifying`、`installing`、`completed` 和 `failed`；主程序只消费合法事件，进度管道断开不影响安装。
 - 以 quiet 模式安装，退出码 `3010` 视为可接受的重启提示。
 - 安装结束后再次查询 package，仍缺失则主程序启动失败。
 
