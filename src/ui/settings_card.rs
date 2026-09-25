@@ -159,7 +159,9 @@ impl SettingsExpander {
                 .map(|(index, view)| KeyedView::new(index, view)),
         );
 
-        let mut expander = Expander::new().is_expanded(self.is_expanded);
+        let mut expander = Expander::new()
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .is_expanded(self.is_expanded);
         if let Some(callback) = self.on_expanding {
             expander = expander.on_is_expanded_changed(callback);
         }
