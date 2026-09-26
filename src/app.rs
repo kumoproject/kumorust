@@ -14,7 +14,7 @@ use crate::domain::folder;
 use crate::features::library::{self, LibraryMessage, LibraryModel};
 use crate::features::settings::{self, SettingsMessage, SettingsModel};
 use crate::platform::{tray, window};
-use crate::services::{scanner, updater};
+use crate::services::{application_update, scanner, updater};
 
 /// Top-level navigation route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +78,8 @@ pub enum AppMessage {
     Library(LibraryMessage),
     /// A settings interaction, forwarded to the settings reducer.
     Settings(SettingsMessage),
+    /// The main process finished checking and preparing an application update.
+    ApplicationUpdatePrepared(Result<application_update::ApplicationUpdatePreparation, String>),
 }
 
 /// Side effects requested by any reducer and executed by [`perform`].
@@ -103,8 +105,10 @@ pub enum AppEffect {
         path: String,
         directory: String,
     },
-    /// Launch the standalone updater.
-    StartUpdater,
+    /// Download and prepare an application update in the main process.
+    PrepareApplicationUpdate,
+    /// Launch the standalone updater for a prepared package.
+    ApplyPreparedUpdate(std::path::PathBuf),
 }
 
 /// Pure root reducer: routes nested messages to their slice reducers and
@@ -147,7 +151,33 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             settings::SettingsEffect::SaveFolders { folders, rescan } => {
                 AppEffect::SaveFolders { folders, rescan }
             }
-            settings::SettingsEffect::StartUpdater => AppEffect::StartUpdater,
+            settings::SettingsEffect::PrepareApplicationUpdate => {
+                AppEffect::PrepareApplicationUpdate
+            }
+            settings::SettingsEffect::ApplyPreparedUpdate(package_directory) => {
+                AppEffect::ApplyPreparedUpdate(package_directory)
+            }
+        },
+        AppMessage::ApplicationUpdatePrepared(result) => match result {
+            Ok(application_update::ApplicationUpdatePreparation::NoUpdate) => {
+                settings::update(&mut model.settings, SettingsMessage::UpdateFinished);
+                AppEffect::None
+            }
+            Ok(application_update::ApplicationUpdatePreparation::Ready(package_directory)) => {
+                match settings::update(
+                    &mut model.settings,
+                    SettingsMessage::UpdateReady(package_directory),
+                ) {
+                    settings::SettingsEffect::ApplyPreparedUpdate(package_directory) => {
+                        AppEffect::ApplyPreparedUpdate(package_directory)
+                    }
+                    _ => AppEffect::None,
+                }
+            }
+            Err(error) => {
+                settings::update(&mut model.settings, SettingsMessage::UpdateFailed(error));
+                AppEffect::None
+            }
         },
     }
 }
@@ -300,17 +330,28 @@ where
                 }
             }
         }
-        AppEffect::StartUpdater => match updater::start_update() {
-            Ok(()) => std::process::exit(0),
-            Err(error) => {
-                let _ = context
-                    .sender()
-                    .send(AppMessage::Settings(SettingsMessage::UpdateFailed(fmt1(
-                        "error.updater_start_failed",
-                        error,
-                    ))));
+        AppEffect::PrepareApplicationUpdate => {
+            context.spawn_background(move |_token| {
+                AppMessage::ApplicationUpdatePrepared(
+                    application_update::prepare_application_update()
+                        .map_err(|error| error.to_string()),
+                )
+            });
+        }
+        AppEffect::ApplyPreparedUpdate(package_directory) => {
+            match updater::start_prepared_update(package_directory) {
+                Ok(()) => std::process::exit(0),
+                Err(error) => {
+                    let _ =
+                        context
+                            .sender()
+                            .send(AppMessage::Settings(SettingsMessage::UpdateFailed(fmt1(
+                                "error.update_failed",
+                                error,
+                            ))));
+                }
             }
-        },
+        }
     }
 }
 

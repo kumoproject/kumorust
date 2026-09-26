@@ -5,26 +5,18 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 use std::{fmt, thread};
 
+use reqwest::Url;
 use reqwest::blocking::Client;
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use url::Url;
 
-const UPDATE_SOURCE_ENV: &str = "KUMORUST_UPDATE_SOURCE";
-const DEFAULT_UPDATE_SOURCE: &str =
-    "https://github.com/kumoproject/kumorust/releases/latest/download";
-const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const DOWNLOAD_BUFFER_SIZE: usize = 128 * 1024;
 const DOWNLOAD_PROGRESS_BYTES: u64 = 512 * 1024;
 const DOWNLOAD_PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 const PROGRESS_PROTOCOL: u32 = 1;
 const UPDATER_INSTANCE_NAME: &str = "KumoRust.updater";
-const REQUIRED_UPDATE_FILES: [&str; 3] = [
-    "kumorust.exe",
-    "updater.exe",
-    "microsoft.windowsappruntime.bootstrap.dll",
-];
+const REQUIRED_UPDATE_FILES: [&str; 2] =
+    ["kumorust.exe", "microsoft.windowsappruntime.bootstrap.dll"];
 
 #[derive(Debug)]
 enum CommandLine {
@@ -32,24 +24,11 @@ enum CommandLine {
     InstallRuntime {
         spec_json: String,
     },
-    Update {
-        wait_pid: Option<u32>,
-        app_version: String,
-    },
     ApplyUpdate {
         package_directory: PathBuf,
         install_directory: PathBuf,
         parent_pid: u32,
     },
-}
-
-#[derive(Debug, Deserialize)]
-struct UpdateManifest {
-    version: String,
-    target: String,
-    url: String,
-    sha256: String,
-    size: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,12 +117,6 @@ impl ProgressReporter {
     }
 }
 
-#[derive(Debug)]
-enum UpdateResult {
-    NoUpdate,
-    HelperStarted,
-}
-
 type Result<T> = std::result::Result<T, UpdaterError>;
 
 #[derive(Debug)]
@@ -179,16 +152,12 @@ pub fn run() -> Result<()> {
             package_directory,
             install_directory,
             parent_pid,
-        } => run_apply_helper(&package_directory, &install_directory, parent_pid),
-        CommandLine::Update {
-            wait_pid,
-            app_version,
         } => {
             let instance = acquire_updater_instance()?;
             if !instance.is_single() {
                 return Ok(());
             }
-            run_update(wait_pid, &app_version)
+            run_apply_update(&package_directory, &install_directory, parent_pid)
         }
     }
 }
@@ -211,6 +180,7 @@ fn run_runtime_install(spec_json: &str, progress: &mut ProgressReporter) -> Resu
             fs::remove_file(&installer)
                 .map_err(|error| io_error("删除损坏的 runtime 缓存失败", error))?;
         }
+
         let client = http_client()?;
         download_file(
             &client,
@@ -235,7 +205,7 @@ fn run_runtime_install(spec_json: &str, progress: &mut ProgressReporter) -> Resu
         .status()
         .map_err(|error| io_error("启动 Windows App SDK installer 失败", error))?;
     let exit_code = status.code();
-    if !status.success() && exit_code != Some(3010) {
+    if !status.success() && !matches!(exit_code, Some(3010) | Some(1641)) {
         return Err(app_error(format!(
             "Windows App SDK installer 返回状态 {status}"
         )));
@@ -243,28 +213,32 @@ fn run_runtime_install(spec_json: &str, progress: &mut ProgressReporter) -> Resu
     Ok(())
 }
 
-fn run_update(wait_pid: Option<u32>, app_version: &str) -> Result<()> {
-    let updater_path = current_executable()?;
-    let install_directory = updater_path
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| app_error("updater.exe 没有父目录"))?;
-    if let Some(pid) = wait_pid {
-        wait_for_process(pid)?;
+fn run_apply_update(
+    package_directory: &Path,
+    install_directory: &Path,
+    parent_pid: u32,
+) -> Result<()> {
+    if let Err(error) = wait_for_process(parent_pid) {
+        eprintln!("KumoRust update wait failed: {error}");
+        let _ = launch_application(install_directory);
+        return Err(error);
     }
 
-    match update_application(&install_directory, app_version) {
-        Ok(UpdateResult::HelperStarted) => Ok(()),
-        Ok(UpdateResult::NoUpdate) => launch_application(&install_directory),
-        Err(error) => {
-            eprintln!("KumoRust update failed: {error}");
-            launch_application(&install_directory)
-        }
+    if let Err(error) = replace_application_files(package_directory, install_directory) {
+        eprintln!("KumoRust update failed: {error}");
+        let _ = launch_application(install_directory);
+        return Err(error);
     }
+
+    if let Err(error) = fs::remove_dir_all(package_directory) {
+        eprintln!("KumoRust update package cleanup failed: {error}");
+    }
+
+    launch_application(install_directory)
 }
 
 pub fn show_fatal_error(error: &UpdaterError) {
-    eprintln!("KumoRust 无法启动：{error}");
+    eprintln!("KumoRust updater failed: {error}");
 }
 
 fn parse_command_line() -> Result<CommandLine> {
@@ -276,10 +250,8 @@ where
     I: IntoIterator<Item = std::ffi::OsString>,
 {
     let mut args = arguments.into_iter();
-    let mut wait_pid = None;
     let mut from_app = false;
     let mut install_runtime = None;
-    let mut app_version = None;
     let mut apply_update = None;
 
     while let Some(argument) = args.next() {
@@ -290,18 +262,6 @@ where
                     .next()
                     .ok_or_else(|| app_error("--install-runtime 缺少 runtime-spec"))?;
                 install_runtime = Some(value.to_string_lossy().into_owned());
-            }
-            "--wait-pid" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| app_error("--wait-pid 缺少进程 ID"))?;
-                wait_pid = Some(parse_pid(&value)?);
-            }
-            "--app-version" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| app_error("--app-version 缺少版本号"))?;
-                app_version = Some(value.to_string_lossy().into_owned());
             }
             "--apply-update" => {
                 let package_directory = args
@@ -325,12 +285,8 @@ where
         }
     }
 
-    if !from_app && wait_pid.is_some() {
-        return Err(app_error("--wait-pid 必须与 --from-app 一起使用"));
-    }
-
     if let Some((package_directory, install_directory, parent_pid)) = apply_update {
-        if from_app || install_runtime.is_some() || wait_pid.is_some() || app_version.is_some() {
+        if from_app || install_runtime.is_some() {
             return Err(app_error("--apply-update 不能与其他 updater 参数一起使用"));
         }
         return Ok(CommandLine::ApplyUpdate {
@@ -344,28 +300,14 @@ where
         if !from_app {
             return Err(app_error("--install-runtime 必须与 --from-app 一起使用"));
         }
-        if wait_pid.is_some() || app_version.is_some() {
-            return Err(app_error(
-                "--install-runtime 不能与 --wait-pid 或 --app-version 一起使用",
-            ));
-        }
         return Ok(CommandLine::InstallRuntime { spec_json });
     }
 
     if from_app {
-        let app_version =
-            app_version.ok_or_else(|| app_error("--from-app 应用更新缺少 --app-version"))?;
-        Ok(CommandLine::Update {
-            wait_pid,
-            app_version,
-        })
-    } else if wait_pid.is_some() || app_version.is_some() {
-        Err(app_error(
-            "--wait-pid 和 --app-version 必须与 --from-app 一起使用",
-        ))
-    } else {
-        Ok(CommandLine::Ignore)
+        return Err(app_error("--from-app 缺少 updater 操作"));
     }
+
+    Ok(CommandLine::Ignore)
 }
 
 fn acquire_updater_instance() -> Result<single_instance::SingleInstance> {
@@ -447,148 +389,6 @@ fn valid_runtime_installer(path: &Path, expected_hash: &[u8; 32]) -> Result<bool
     Ok(false)
 }
 
-fn update_application(install_directory: &Path, app_version: &str) -> Result<UpdateResult> {
-    let target = update_target()?;
-    let client = http_client()?;
-    let Some((manifest, package_url)) = fetch_manifest(&client, target)? else {
-        return Ok(UpdateResult::NoUpdate);
-    };
-
-    let current_version = Version::parse(app_version)
-        .map_err(|error| app_error(format!("当前应用版本无效: {error}")))?;
-    let remote_version = Version::parse(&manifest.version)
-        .map_err(|error| app_error(format!("更新 manifest 版本无效: {error}")))?;
-    if remote_version <= current_version {
-        return Ok(UpdateResult::NoUpdate);
-    }
-
-    let cache = update_cache_directory(target, &manifest.version)?;
-    let archive = cache.join(format!("KumoRust-{target}-{}.zip", manifest.version));
-    let expected_hash = parse_sha256(&manifest.sha256)?;
-    let archive_is_valid =
-        archive.is_file() && file_matches_hash_and_size(&archive, &expected_hash, manifest.size)?;
-    if !archive_is_valid {
-        if archive.is_file() {
-            fs::remove_file(&archive)
-                .map_err(|error| io_error("删除损坏的应用更新缓存失败", error))?;
-        }
-        download_file(&client, &package_url, &archive, manifest.size, |_, _| {})?;
-        if !file_matches_hash_and_size(&archive, &expected_hash, manifest.size)? {
-            return Err(app_error("应用更新包 SHA-256 校验失败"));
-        }
-    }
-
-    let package_directory = cache.join(format!("package-{}", std::process::id()));
-    if package_directory.exists() {
-        fs::remove_dir_all(&package_directory)
-            .map_err(|error| io_error("清理旧的更新临时目录失败", error))?;
-    }
-    fs::create_dir_all(&package_directory)
-        .map_err(|error| io_error("创建更新临时目录失败", error))?;
-    if let Err(error) = extract_zip(&archive, &package_directory) {
-        let _ = fs::remove_dir_all(&package_directory);
-        return Err(error);
-    }
-    validate_update_payload(&package_directory)?;
-
-    spawn_apply_helper(&package_directory, install_directory)?;
-    Ok(UpdateResult::HelperStarted)
-}
-
-fn fetch_manifest(client: &Client, target: &str) -> Result<Option<(UpdateManifest, Url)>> {
-    let manifest_url = manifest_url(target)?;
-    let response = client
-        .get(manifest_url.clone())
-        .send()
-        .map_err(|error| external_error("连接应用更新源失败", error))?;
-    if response.status().as_u16() == 404 {
-        return Ok(None);
-    }
-    if !response.status().is_success() {
-        return Err(app_error(format!(
-            "更新 manifest 请求返回 HTTP {}",
-            response.status()
-        )));
-    }
-
-    let package_base_url = response.url().clone();
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_MANIFEST_BYTES)
-    {
-        return Err(app_error("更新 manifest 超过允许大小"));
-    }
-    let mut body = Vec::new();
-    response
-        .take(MAX_MANIFEST_BYTES + 1)
-        .read_to_end(&mut body)
-        .map_err(|error| io_error("读取更新 manifest 失败", error))?;
-    if body.len() as u64 > MAX_MANIFEST_BYTES {
-        return Err(app_error("更新 manifest 超过允许大小"));
-    }
-
-    let manifest: UpdateManifest = serde_json::from_slice(&body)
-        .map_err(|error| app_error(format!("解析更新 manifest 失败: {error}")))?;
-    if manifest.target != target {
-        return Err(app_error(format!(
-            "更新 manifest 目标为 {}，当前目标为 {target}",
-            manifest.target
-        )));
-    }
-    let _ = Version::parse(&manifest.version)
-        .map_err(|error| app_error(format!("更新 manifest 版本无效: {error}")))?;
-    let _ = parse_sha256(&manifest.sha256)?;
-
-    let package_url = package_base_url
-        .join(&manifest.url)
-        .map_err(|error| app_error(format!("更新包 URL 无效: {error}")))?;
-    require_https_url(&package_url, "更新包")?;
-    Ok(Some((manifest, package_url)))
-}
-
-fn manifest_url(target: &str) -> Result<Url> {
-    let source = std::env::var(UPDATE_SOURCE_ENV)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_UPDATE_SOURCE.to_string());
-    let mut source =
-        Url::parse(&source).map_err(|error| app_error(format!("更新源 URL 无效: {error}")))?;
-    require_https_url(&source, "更新源")?;
-
-    if !source.path().ends_with(".json") {
-        let path = format!("{}/", source.path().trim_end_matches('/'));
-        source.set_path(&path);
-        source.set_query(None);
-        source.set_fragment(None);
-        source = source
-            .join(&format!("kumorust-update-{target}.json"))
-            .map_err(|error| app_error(format!("更新 manifest URL 无效: {error}")))?;
-    }
-    Ok(source)
-}
-
-fn require_https_url(url: &Url, description: &str) -> Result<()> {
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err(app_error(format!("{description} 必须是 HTTPS URL")));
-    }
-    Ok(())
-}
-
-fn update_target() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86" => Ok("win-x86"),
-        "x86_64" => Ok("win-x64"),
-        "aarch64" => Ok("win-arm64"),
-        architecture => Err(app_error(format!(
-            "不支持的应用更新 architecture: {architecture}"
-        ))),
-    }
-}
-
 fn http_client() -> Result<Client> {
     Client::builder()
         .user_agent("KumoRust-updater")
@@ -622,7 +422,7 @@ fn download_file(
             && actual != expected
         {
             return Err(app_error(format!(
-                "下载文件大小为 {actual} bytes，但 manifest 声明 {expected} bytes"
+                "下载文件大小为 {actual} bytes，但 runtime-spec 声明 {expected} bytes"
             )));
         }
 
@@ -694,7 +494,7 @@ fn file_matches_hash_and_size(
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(io_error("读取更新缓存 metadata 失败", error)),
+        Err(error) => return Err(io_error("读取 runtime 缓存 metadata 失败", error)),
     };
     if let Some(expected_size) = expected_size
         && metadata.len() != expected_size
@@ -702,13 +502,14 @@ fn file_matches_hash_and_size(
         return Ok(false);
     }
 
-    let mut file = File::open(path).map_err(|error| io_error("打开更新缓存进行校验失败", error))?;
+    let mut file =
+        File::open(path).map_err(|error| io_error("打开 runtime 缓存进行校验失败", error))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; DOWNLOAD_BUFFER_SIZE];
     loop {
         let read = file
             .read(&mut buffer)
-            .map_err(|error| io_error("读取更新缓存进行校验失败", error))?;
+            .map_err(|error| io_error("读取 runtime 缓存进行校验失败", error))?;
         if read == 0 {
             break;
         }
@@ -721,12 +522,14 @@ fn file_matches_hash_and_size(
 fn parse_sha256(value: &str) -> Result<[u8; 32]> {
     let value = value.trim();
     if value.len() != 64 {
-        return Err(app_error("manifest 的 SHA-256 必须包含 64 个十六进制字符"));
+        return Err(app_error(
+            "runtime-spec 的 SHA-256 必须包含 64 个十六进制字符",
+        ));
     }
     let mut digest = [0_u8; 32];
     for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
-        let high = hex_digit(pair[0]).ok_or_else(|| app_error("manifest 的 SHA-256 无效"))?;
-        let low = hex_digit(pair[1]).ok_or_else(|| app_error("manifest 的 SHA-256 无效"))?;
+        let high = hex_digit(pair[0]).ok_or_else(|| app_error("runtime-spec 的 SHA-256 无效"))?;
+        let low = hex_digit(pair[1]).ok_or_else(|| app_error("runtime-spec 的 SHA-256 无效"))?;
         digest[index] = (high << 4) | low;
     }
     Ok(digest)
@@ -739,119 +542,6 @@ fn hex_digit(value: u8) -> Option<u8> {
         b'A'..=b'F' => Some(value - b'A' + 10),
         _ => None,
     }
-}
-
-fn extract_zip(archive_path: &Path, destination: &Path) -> Result<()> {
-    let file =
-        File::open(archive_path).map_err(|error| io_error("打开应用更新 ZIP 失败", error))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|error| app_error(format!("读取应用更新 ZIP 失败: {error}")))?;
-
-    for index in 0..archive.len() {
-        let mut entry = archive
-            .by_index(index)
-            .map_err(|error| app_error(format!("读取 ZIP entry 失败: {error}")))?;
-        if entry.is_symlink() {
-            return Err(app_error("应用更新 ZIP 不能包含 symbolic link"));
-        }
-        let relative_path = entry
-            .enclosed_name()
-            .ok_or_else(|| app_error(format!("ZIP entry 路径不安全: {}", entry.name())))?;
-        if relative_path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-        {
-            return Err(app_error(format!("ZIP entry 路径不安全: {}", entry.name())));
-        }
-
-        let output_path = destination.join(relative_path);
-        if entry.is_dir() {
-            fs::create_dir_all(&output_path)
-                .map_err(|error| io_error("创建 ZIP 目录失败", error))?;
-            continue;
-        }
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| io_error("创建 ZIP 文件目录失败", error))?;
-        }
-        let mut output =
-            File::create(&output_path).map_err(|error| io_error("创建解压文件失败", error))?;
-        io::copy(&mut entry, &mut output)
-            .map_err(|error| io_error("解压应用更新文件失败", error))?;
-    }
-    Ok(())
-}
-
-fn validate_update_payload(package_directory: &Path) -> Result<()> {
-    for required in REQUIRED_UPDATE_FILES {
-        if find_package_file(package_directory, required).is_none() {
-            return Err(app_error(format!("更新包缺少 {required}")));
-        }
-    }
-    Ok(())
-}
-
-fn find_package_file(directory: &Path, expected_name: &str) -> Option<PathBuf> {
-    let exact = directory.join(expected_name);
-    if exact.is_file() {
-        return Some(exact);
-    }
-    fs::read_dir(directory)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(expected_name))
-        })
-}
-
-fn spawn_apply_helper(package_directory: &Path, install_directory: &Path) -> Result<()> {
-    let updater_path = current_executable()?;
-    let helper_directory = std::env::temp_dir().join("KumoRust").join("updater");
-    fs::create_dir_all(&helper_directory)
-        .map_err(|error| io_error("创建 updater helper 目录失败", error))?;
-    let helper_path = helper_directory.join("updater-helper.exe");
-    if helper_path.exists() {
-        fs::remove_file(&helper_path)
-            .map_err(|error| io_error("清理旧 updater helper 失败", error))?;
-    }
-    fs::copy(&updater_path, &helper_path)
-        .map_err(|error| io_error("复制 updater helper 失败", error))?;
-
-    Command::new(&helper_path)
-        .arg("--apply-update")
-        .arg(package_directory)
-        .arg(install_directory)
-        .arg(std::process::id().to_string())
-        .spawn()
-        .map_err(|error| io_error("启动 updater helper 失败", error))?;
-    Ok(())
-}
-
-fn run_apply_helper(
-    package_directory: &Path,
-    install_directory: &Path,
-    parent_pid: u32,
-) -> Result<()> {
-    let current_helper = current_executable()?;
-
-    wait_for_process(parent_pid)?;
-    let result = replace_application_files(package_directory, install_directory);
-    if let Err(error) = result {
-        eprintln!("KumoRust update failed: {error}");
-        let _ = launch_application(install_directory);
-        return Err(error);
-    }
-
-    let launch_result = launch_application(install_directory);
-    if let Err(error) = &launch_result {
-        eprintln!("KumoRust update installed, but launch failed: {error}");
-    }
-    let _ = fs::remove_dir_all(package_directory);
-    schedule_self_delete(&current_helper);
-    launch_result
 }
 
 fn replace_application_files(package_directory: &Path, install_directory: &Path) -> Result<()> {
@@ -913,6 +603,35 @@ fn replace_application_files(package_directory: &Path, install_directory: &Path)
     Ok(())
 }
 
+fn validate_update_payload(package_directory: &Path) -> Result<()> {
+    if !package_directory.is_dir() {
+        return Err(app_error("更新包目录不存在"));
+    }
+    for required in REQUIRED_UPDATE_FILES {
+        if find_package_file(package_directory, required).is_none() {
+            return Err(app_error(format!("更新包缺少 {required}")));
+        }
+    }
+    Ok(())
+}
+
+fn find_package_file(directory: &Path, expected_name: &str) -> Option<PathBuf> {
+    let exact = directory.join(expected_name);
+    if exact.is_file() {
+        return Some(exact);
+    }
+    fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(expected_name))
+        })
+}
+
 fn cleanup_paths(staged: &[(&str, PathBuf, PathBuf)], backups: &[(PathBuf, PathBuf)]) {
     for (_, _, staged_path) in staged {
         let _ = fs::remove_file(staged_path);
@@ -972,16 +691,15 @@ fn tasklist_pid(line: &str) -> Option<u32> {
         .ok()
 }
 
-fn schedule_self_delete(path: &Path) {
-    let command = format!(
-        "ping 127.0.0.1 -n 3 > nul & del /f /q \"{}\"",
-        path.display()
-    );
-    let _ = Command::new("cmd.exe").args(["/C", &command]).spawn();
-}
-
-fn current_executable() -> Result<PathBuf> {
-    std::env::current_exe().map_err(|error| io_error("获取 updater.exe 路径失败", error))
+fn require_https_url(url: &Url, description: &str) -> Result<()> {
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(app_error(format!("{description} 必须是 HTTPS URL")));
+    }
+    Ok(())
 }
 
 fn runtime_cache_directory(spec: &RuntimeSpec) -> Result<PathBuf> {
@@ -990,15 +708,6 @@ fn runtime_cache_directory(spec: &RuntimeSpec) -> Result<PathBuf> {
         .join(&spec.version)
         .join(&spec.architecture);
     fs::create_dir_all(&directory).map_err(|error| io_error("创建 runtime 缓存目录失败", error))?;
-    Ok(directory)
-}
-
-fn update_cache_directory(target: &str, version: &str) -> Result<PathBuf> {
-    let directory = app_data_directory()?
-        .join("updates")
-        .join(target)
-        .join(version);
-    fs::create_dir_all(&directory).map_err(|error| io_error("创建应用更新缓存目录失败", error))?;
     Ok(directory)
 }
 
@@ -1081,22 +790,34 @@ mod tests {
     }
 
     #[test]
-    fn accepts_application_update_version_from_main_app() {
+    fn accepts_application_apply_from_main_app() {
         let arguments = [
-            std::ffi::OsString::from("--from-app"),
-            std::ffi::OsString::from("--wait-pid"),
+            std::ffi::OsString::from("--apply-update"),
+            std::ffi::OsString::from("package"),
+            std::ffi::OsString::from("install"),
             std::ffi::OsString::from("123"),
-            std::ffi::OsString::from("--app-version"),
-            std::ffi::OsString::from("1.2.3"),
         ];
         assert!(matches!(
             parse_command_line_args(arguments),
-            Ok(CommandLine::Update {
-                wait_pid: Some(123),
-                app_version,
-            }) if app_version == "1.2.3"
+            Ok(CommandLine::ApplyUpdate {
+                package_directory,
+                install_directory,
+                parent_pid: 123,
+            }) if package_directory == PathBuf::from("package")
+                && install_directory == PathBuf::from("install")
         ));
-        assert!(parse_command_line_args([std::ffi::OsString::from("--from-app")]).is_err());
+    }
+
+    #[test]
+    fn rejects_the_removed_download_arguments() {
+        assert!(
+            parse_command_line_args([
+                std::ffi::OsString::from("--from-app"),
+                std::ffi::OsString::from("--app-version"),
+                std::ffi::OsString::from("1.2.3"),
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -1151,16 +872,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsafe_zip_paths() {
-        assert!(
-            Path::new("safe/file.exe")
-                .components()
-                .all(|component| matches!(component, Component::Normal(_)))
-        );
-        assert!(
-            !Path::new("../file.exe")
-                .components()
-                .all(|component| matches!(component, Component::Normal(_)))
-        );
+    fn rejects_unsafe_path_components() {
+        assert!(is_safe_path_component("2.4.0"));
+        assert!(!is_safe_path_component("../2.4.0"));
+        assert!(!is_safe_path_component(""));
     }
 }

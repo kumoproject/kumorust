@@ -16,8 +16,10 @@ pub enum SettingsEffect {
         folders: Vec<String>,
         rescan: bool,
     },
-    /// Launch the standalone updater.
-    StartUpdater,
+    /// Download and prepare the application update in the main process.
+    PrepareApplicationUpdate,
+    /// Ask the standalone updater to apply an already prepared package.
+    ApplyPreparedUpdate(std::path::PathBuf),
 }
 
 /// Pure MVU reducer for the settings slice.
@@ -50,10 +52,18 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) -> SettingsEf
                 return SettingsEffect::None;
             }
             model.update_status = UpdateStatus::Starting;
-            SettingsEffect::StartUpdater
+            SettingsEffect::PrepareApplicationUpdate
         }
         SettingsMessage::UpdateFailed(message) => {
             model.update_status = UpdateStatus::Error(message);
+            SettingsEffect::None
+        }
+        SettingsMessage::UpdateReady(package_directory) => {
+            model.update_status = UpdateStatus::Starting;
+            SettingsEffect::ApplyPreparedUpdate(package_directory)
+        }
+        SettingsMessage::UpdateFinished => {
+            model.update_status = UpdateStatus::UpToDate;
             SettingsEffect::None
         }
         SettingsMessage::FoldersExpanded(expanded) => {

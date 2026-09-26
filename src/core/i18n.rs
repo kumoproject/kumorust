@@ -176,8 +176,14 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("settings.update.idle", "保持最新版本", "Up to date"),
     (
         "settings.update.idle.description",
-        "由独立更新器检查并安装 KumoRust 与 Windows App SDK",
-        "The standalone updater checks and installs KumoRust and the Windows App SDK",
+        "主程序负责下载应用更新；Windows App SDK 缺失时由独立 updater 按需安装",
+        "The app downloads updates; the standalone updater installs Windows App SDK when needed",
+    ),
+    ("settings.update.up_to_date", "已是最新版本", "Up to date"),
+    (
+        "settings.update.up_to_date.description",
+        "当前没有可用的应用更新",
+        "There is no newer application version",
     ),
     (
         "settings.update.starting",
@@ -186,15 +192,15 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ),
     (
         "settings.update.starting.description",
-        "应用即将退出，更新器会完成检查后重新启动 KumoRust",
-        "The app is about to exit; the updater restarts KumoRust after checking",
+        "主程序正在下载并校验更新包，准备完成后由 updater 替换文件并重启",
+        "The app is preparing the update package before the updater replaces files and restarts it",
     ),
     (
         "settings.update.error",
         "更新器启动失败",
         "Failed to start updater",
     ),
-    ("settings.update.busy", "启动中", "Starting…"),
+    ("settings.update.busy", "检查中", "Checking…"),
     ("settings.update.check", "检查并更新", "Check for updates"),
     // Common / errors
     ("common.notice", "提示", "Notice"),
@@ -219,9 +225,9 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Failed to launch {}: {}",
     ),
     (
-        "error.updater_start_failed",
-        "无法启动更新器：{}",
-        "Failed to start updater: {}",
+        "error.update_failed",
+        "应用更新失败：{}",
+        "Application update failed: {}",
     ),
     // Relative time
     ("time.just_now", "刚刚", "just now"),

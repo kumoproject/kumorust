@@ -25,6 +25,7 @@ pub const RUNTIME_INSTALLER_X86_SHA256: &str =
 pub enum UpdateStatus {
     Idle,
     Starting,
+    UpToDate,
     Error(String),
 }
 

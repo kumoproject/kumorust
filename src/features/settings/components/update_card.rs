@@ -18,6 +18,10 @@ pub fn update_card(status: &UpdateStatus, on_update: impl Fn() + 'static) -> Vie
             tr("settings.update.starting"),
             tr("settings.update.starting.description"),
         ),
+        UpdateStatus::UpToDate => (
+            tr("settings.update.up_to_date"),
+            tr("settings.update.up_to_date.description"),
+        ),
         UpdateStatus::Error(message) => (tr("settings.update.error"), message.as_str()),
     };
     let busy = matches!(status, UpdateStatus::Starting);

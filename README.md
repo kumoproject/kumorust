@@ -34,14 +34,18 @@ Runtime progress events use `type` values `progress`, `completed`, and
 `installing`. Download events include `bytes_done` and `bytes_total` when the
 server provides a content length.
 
-`updater.exe` is an internal helper and ignores a plain double-click. When
-called by the main program it:
+`updater.exe` is an internal helper and ignores a plain double-click. It has a
+small, stable boundary: when called by the main program it:
 
 - installs the runtime described by the received `runtime-spec`;
 - downloads and verifies the runtime installer with its supplied SHA-256;
-- checks the application update manifest when explicitly requested;
-- downloads and verifies a SHA-256 protected ZIP from GitHub Releases or R2;
-- updates both `kumorust.exe` and `updater.exe`, then starts the application.
+- waits for the main program to exit for an already prepared application update;
+- replaces `kumorust.exe` and `microsoft.windowsappruntime.bootstrap.dll`, then
+  starts the application.
+
+The main program owns application update discovery, manifest validation, ZIP
+download, SHA-256 verification, and extraction. The updater does not download
+application updates or update itself.
 
 The runtime installer is downloaded from the fixed Microsoft Learn download
 channel (`aka.ms/windowsappsdk/2.4/2.4.0/...`), not from NuGet. It is only used
@@ -108,12 +112,14 @@ KumoRust-win-arm64-<version>.zip
 kumorust-update-win-arm64.json
 ```
 
-Use the x64 names for an x64 release. For Cloudflare R2, upload the same files
-to one HTTPS directory and set the source before starting the updater:
+Use the x64 names for an x64 release. The main program downloads and extracts
+the package, then passes the extracted directory to `updater.exe` for the final
+file replacement. For Cloudflare R2, upload the same files to one HTTPS
+directory and set the source before starting the main program:
 
 ```powershell
 $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
-.\updater.exe
+.\kumorust.exe
 ```
 
 The published `windows-reactor` dependency uses crates.io version `0.100`.

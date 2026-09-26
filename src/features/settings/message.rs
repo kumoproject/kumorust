@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// Settings-specific events. Views only emit these (wrapped by the root app
 /// into `AppMessage::Settings`); they never touch state directly.
 #[derive(Clone, Debug)]
@@ -10,8 +12,12 @@ pub enum SettingsMessage {
     ApplyFolders { folders: Vec<String>, rescan: bool },
     /// The user asked to check for app updates.
     CheckUpdate,
-    /// The updater could not be started.
+    /// The application update could not be prepared or started.
     UpdateFailed(String),
+    /// The application update package is ready for the updater to apply.
+    UpdateReady(PathBuf),
+    /// The application update check completed without a newer release.
+    UpdateFinished,
     /// The indexed-folder expander was expanded or collapsed.
     FoldersExpanded(bool),
 }

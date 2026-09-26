@@ -51,13 +51,15 @@ mindmap
       文件夹列表展开/收起
       手动检查应用更新
     运行时与更新
-      updater.exe
-        运行时安装
+      主程序应用更新
         HTTPS manifest
         SemVer 比较
-        SHA-256 校验
-        ZIP 安全校验
-        helper 替换文件
+        ZIP 下载与 SHA-256 校验
+        ZIP 安全解压与 payload 校验
+      updater.exe
+        Windows App SDK runtime 下载与安装
+        等待主程序退出
+        替换主程序文件
         重启主程序
     平台行为
       WinUI 3 / windows-reactor
@@ -85,7 +87,7 @@ flowchart TD
     B -- 否 --> D[检查 Windows App SDK runtime]
     D -- 缺失 --> E[调用 updater.exe 安装 runtime]
     E --> F{安装后再次检查}
-    F -- 失败 --> X[启动失败]
+    F -- 失败 --> X[记录错误并继续启动流程]
     F -- 成功 --> G[启动 windows-reactor]
     D -- 已安装 --> G
     G --> H[创建托盘与主窗口]
@@ -196,23 +198,22 @@ flowchart LR
 
 ### 4.4 应用更新
 
-主程序只在用户从设置页点击“检查并更新”时启动 updater。成功启动后主进程退出，由 updater 负责后续工作：
+主程序只在用户从设置页点击“检查并更新”时执行应用更新。应用更新的下载和准备由主程序负责，updater 只做最后的替换：
 
 1. 使用 `KUMORUST_UPDATE_SOURCE`，未设置时使用 GitHub Releases 的 latest download 目录。
 2. 按当前架构生成 `kumorust-update-win-x86.json`、`win-x64` 或 `win-arm64` manifest URL。
 3. 只接受 HTTPS、带 host、无用户名和密码的 URL。
 4. 读取 manifest，校验目标架构、SemVer、SHA-256 和相对更新包 URL。
-5. 远端版本不高于当前版本时不更新，并重新启动主程序。
-6. 下载 ZIP 到 `%LOCALAPPDATA%\KumoRust\updates\...`，校验大小和 SHA-256；下载失败会清理 `.part` 文件。
-7. 解压时拒绝 symbolic link 和不安全路径，要求包含三个文件：
+5. 远端版本不高于当前版本时保持主程序运行，并显示“已是最新版本”。
+6. 主程序下载 ZIP 到 `%LOCALAPPDATA%\KumoRust\updates\...`，校验大小和 SHA-256；下载失败会清理 `.part` 文件。
+7. 主程序安全解压 ZIP，拒绝 symbolic link 和不安全路径，并要求包含：
    - `kumorust.exe`
-   - `updater.exe`
    - `microsoft.windowsappruntime.bootstrap.dll`
-8. 复制 updater 为临时 helper，等待旧主进程退出。
-9. 将新文件暂存、备份旧文件、替换目标文件；失败时尝试回滚。
-10. 启动新主程序，清理更新包目录，并安排删除 helper 自身。
+8. 主程序启动 `updater.exe --apply-update <package-directory> <install-directory> <parent-pid>`；只有成功启动 updater 后主程序才退出。
+9. updater 等待旧主进程退出，将文件暂存、备份旧文件并替换目标文件；失败时尝试回滚并重新启动旧主程序。
+10. updater 清理已解压的临时目录并启动新主程序。
 
-直接双击 `updater.exe` 不会执行更新，会被视为无内部参数并忽略。updater 自己也有单实例保护。
+updater 不下载应用 manifest 或 ZIP，也不更新 `updater.exe` 自身。直接双击 `updater.exe` 不会执行更新，会被视为无内部参数并忽略；updater 自己有单实例保护。
 
 ### 4.5 Windows App SDK runtime 引导
 
@@ -225,7 +226,7 @@ flowchart LR
 - 安装器下载到 runtime 缓存目录，使用内置 SHA-256 校验；有效缓存可复用。
 - updater 通过 stdout JSON Lines（`protocol: 1`）向主程序报告 `checking`、`downloading`、`verifying`、`installing`、`completed` 和 `failed`；主程序只消费合法事件，进度管道断开不影响安装。
 - 以 quiet 模式安装，退出码 `3010` 视为可接受的重启提示。
-- 安装结束后再次查询 package，仍缺失则主程序启动失败。
+- 安装结束后再次查询 package；如果仍缺失，主程序只记录错误并继续启动流程，不因为 updater 失败主动退出。
 
 ## 5. 平台与窗口行为
 
@@ -268,7 +269,8 @@ domain
 services
   -> scanner: 递归文件系统扫描
   -> icon_extractor: Windows 图标转 PNG
-  -> updater: runtime 安装和 updater 进程启动
+  -> application_update: manifest、应用更新包下载、校验和解压
+  -> updater: runtime 安装、进度转发和应用文件替换进程启动
 
 core
   -> config: settings.json 和图标目录
@@ -291,9 +293,9 @@ MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 
 | 游戏目录 | 只读递归遍历、读取 metadata、提取图标 |
 | 游戏启动 | 以用户权限 spawn `.exe`，工作目录为游戏父目录 |
 | runtime 网络 | 固定 HTTPS Microsoft Learn 下载地址，缺 runtime 时触发 |
-| 应用更新网络 | 用户点击更新后访问默认 GitHub 地址或 `KUMORUST_UPDATE_SOURCE` |
+| 应用更新网络 | 主程序在用户点击更新后访问默认 GitHub 地址或 `KUMORUST_UPDATE_SOURCE` |
 | 更新写入 | `%LOCALAPPDATA%\KumoRust\updates` 和安装目录中的替换文件/备份 |
-| 外部进程 | `updater.exe`、Windows App SDK installer、游戏进程、更新 helper |
+| 外部进程 | `updater.exe`、Windows App SDK installer、游戏进程 |
 | 账户/遥测 | 当前没有账号、登录、遥测或远程游戏元数据 |
 
 ## 8. 当前明确的“没有做”
@@ -305,7 +307,7 @@ MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 
 - 没有游戏列表数据库、手动编辑游戏信息、分类、搜索、排序选项或收藏。
 - 没有扫描错误明细、权限修复或失效目录管理 UI。
 - 没有取消正在运行的扫描；只有旧结果丢弃。
-- 没有进度消息的逐步 UI 更新。
+- 没有游戏目录扫描的逐步进度消息；Windows App SDK 的下载和安装通过 Windows 11 系统通知汇报。
 - 没有在设置文件中持久化 expander、选择项或上次扫描结果。
 - 没有自动更新检查；应用更新必须由用户点击触发。
 - 没有运行时语言选择；`Locale::current()` 当前固定返回中文，英文表是预留能力。
@@ -344,4 +346,5 @@ MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 
 - [x] 点击刷新仍会启动后台扫描。
 - [x] 添加文件夹仍会保存并扫描。
 - [x] 移除文件夹仍会保存并扫描。
-- [x] Windows App SDK runtime 检查与 updater 流程不受本次变更影响。
+- [x] Windows App SDK runtime 由 updater 按需下载安装，主程序通过 JSON Lines 和 Windows 11 系统通知接收进度。
+- [x] 应用更新由主程序下载、校验、解压，updater 只等待退出并替换主程序文件。

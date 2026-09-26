@@ -1,10 +1,13 @@
-//! Updater process management: ensures the Windows App SDK runtime is present
-//! and launches the standalone updater. Pure spec/parsing lives in
-//! `domain::update`; UI lives in `features::settings`.
+//! Process management for the optional updater helper.
+//!
+//! The main process owns application update discovery and download. This
+//! service only installs Windows App SDK when it is missing and asks the
+//! updater to apply an already prepared application directory.
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use windows::Win32::appmodel::GetPackagesByPackageFamily;
@@ -13,8 +16,10 @@ use windows::core::{Error, HRESULT, HSTRING, PWSTR, WIN32_ERROR};
 
 use crate::core::error;
 use crate::domain::update;
+use crate::platform::notifications::RuntimeNotifier;
 
 const PROGRESS_PROTOCOL: u32 = 1;
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Deserialize)]
 struct RuntimeProgressEvent {
@@ -27,28 +32,40 @@ struct RuntimeProgressEvent {
     error: Option<String>,
 }
 
-/// Ensures the Windows App SDK runtime when possible.
-///
-/// Runtime setup is best-effort during application startup. A failure is
-/// reported for diagnostics, but must not prevent the main application from
-/// starting.
+/// Runtime setup is best-effort. A missing updater, a failed installer, or a
+/// failed second check is logged and never terminates the main application.
 pub fn ensure_runtime() {
-    if let Err(error) = try_ensure_runtime() {
-        eprintln!("Windows App SDK runtime 检查或安装失败：{error}");
+    let Some(spec) = update::runtime_spec() else {
+        eprintln!(
+            "Windows App SDK runtime 检查或安装失败：不支持的 architecture: {}",
+            std::env::consts::ARCH
+        );
+        return;
+    };
+    match runtime_is_installed(&spec) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("Windows App SDK runtime 检查失败：{error}");
+            return;
+        }
+    }
+
+    let notifier = RuntimeNotifier::new();
+    match try_ensure_runtime(&spec, &notifier) {
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!("Windows App SDK runtime 检查或安装失败：{error}");
+            notifier.failed(&error.to_string());
+        }
     }
 }
 
-fn try_ensure_runtime() -> windows::core::Result<()> {
-    let Some(spec) = update::runtime_spec() else {
-        return Err(updater_error(format!(
-            "不支持的 Windows App SDK architecture: {}",
-            std::env::consts::ARCH
-        )));
-    };
-    if runtime_is_installed(&spec)? {
-        return Ok(());
-    }
-
+fn try_ensure_runtime(
+    spec: &update::RuntimeSpec,
+    notifier: &RuntimeNotifier,
+) -> windows::core::Result<()> {
+    notifier.phase("checking");
     let updater = updater_path()?.ok_or_else(|| {
         updater_error(format!(
             "Windows App SDK {} 未安装，且找不到 updater.exe",
@@ -64,7 +81,7 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
         .spawn()
         .map_err(|error| updater_error(format!("启动 runtime 安装器失败：{error}")))?;
     if let Some(stdout) = child.stdout.take() {
-        consume_runtime_progress(stdout);
+        consume_runtime_progress(stdout, notifier);
     }
     let status = child
         .wait()
@@ -76,6 +93,7 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
     }
 
     if runtime_is_installed(&spec)? {
+        notifier.completed();
         Ok(())
     } else {
         Err(updater_error(format!(
@@ -85,7 +103,12 @@ fn try_ensure_runtime() -> windows::core::Result<()> {
     }
 }
 
-fn consume_runtime_progress(stdout: impl std::io::Read) {
+fn consume_runtime_progress(stdout: impl std::io::Read, notifier: &RuntimeNotifier) {
+    let mut last_progress = Instant::now()
+        .checked_sub(PROGRESS_INTERVAL)
+        .unwrap_or_else(Instant::now);
+    let mut last_percent = None;
+
     for line in BufReader::new(stdout).lines().map_while(|line| line.ok()) {
         let Ok(event) = serde_json::from_str::<RuntimeProgressEvent>(&line) else {
             continue;
@@ -96,22 +119,33 @@ fn consume_runtime_progress(stdout: impl std::io::Read) {
 
         match event.event_type.as_str() {
             "progress" if event.phase == "downloading" => {
-                if let (Some(done), Some(total)) = (event.bytes_done, event.bytes_total)
-                    && total > 0
-                {
-                    eprintln!(
-                        "Windows App SDK 下载进度：{}% ({done}/{total} bytes)",
-                        done.saturating_mul(100) / total
-                    );
-                } else if let Some(done) = event.bytes_done {
-                    eprintln!("Windows App SDK 已下载：{done} bytes");
+                let should_report = event
+                    .bytes_total
+                    .filter(|total| *total > 0)
+                    .map(|total| {
+                        let percent =
+                            event.bytes_done.unwrap_or_default().saturating_mul(100) / total;
+                        let changed = last_percent != Some(percent);
+                        if changed
+                            && (percent % 5 == 0 || last_progress.elapsed() >= PROGRESS_INTERVAL)
+                        {
+                            last_percent = Some(percent);
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                    .unwrap_or_else(|| last_progress.elapsed() >= PROGRESS_INTERVAL);
+                if should_report {
+                    last_progress = Instant::now();
+                    notifier.downloading(event.bytes_done.unwrap_or_default(), event.bytes_total);
                 }
             }
-            "progress" => eprintln!("Windows App SDK：{}", event.phase),
-            "completed" => eprintln!("Windows App SDK 安装完成"),
+            "progress" => notifier.phase(&event.phase),
+            "completed" => eprintln!("Windows App SDK 安装器已完成"),
             "failed" => {
                 if let Some(error) = event.error {
-                    eprintln!("Windows App SDK 安装失败：{error}");
+                    eprintln!("Windows App SDK 安装器失败：{error}");
                 }
             }
             _ => {}
@@ -231,24 +265,28 @@ fn updater_path() -> windows::core::Result<Option<PathBuf>> {
     }
 }
 
-fn updater_error(message: impl Into<String>) -> Error {
-    Error::new(HRESULT(0x8000_4005_u32 as i32), message.into())
-}
-
-/// Launches the standalone updater with `--wait-pid`; the caller exits after
-/// a successful spawn because the updater restarts the app itself.
-pub fn start_update() -> error::Result<()> {
+/// Starts the updater with an already downloaded and extracted package. The
+/// caller exits only after the process has been spawned successfully.
+pub fn start_prepared_update(package_directory: PathBuf) -> error::Result<()> {
     let updater = updater_path()
         .map_err(|error| error::Error::Message(error.to_string()))?
         .ok_or_else(|| error::Error::Message(String::from("找不到更新器")))?;
+    let executable = std::env::current_exe().map_err(error::Error::from)?;
+    let install_directory = executable
+        .parent()
+        .ok_or_else(|| error::Error::Message(String::from("主程序没有父目录")))?
+        .to_path_buf();
 
     Command::new(updater)
-        .arg("--from-app")
-        .arg("--wait-pid")
+        .arg("--apply-update")
+        .arg(package_directory)
+        .arg(install_directory)
         .arg(std::process::id().to_string())
-        .arg("--app-version")
-        .arg(env!("CARGO_PKG_VERSION"))
         .spawn()
         .map_err(error::Error::from)?;
     Ok(())
+}
+
+fn updater_error(message: impl Into<String>) -> Error {
+    Error::new(HRESULT(0x8000_4005_u32 as i32), message.into())
 }
