@@ -69,6 +69,8 @@ const STRINGS: &[(&str, &str, &str)] = &[
     // Navigation / page titles
     ("nav.library", "库", "Library"),
     ("nav.settings", "设置", "Settings"),
+    ("tray.open", "启动主界面", "Open KumoRust"),
+    ("tray.exit", "退出", "Exit"),
     (
         "settings.subtitle",
         "管理扫描位置和库内容",

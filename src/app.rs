@@ -6,6 +6,12 @@
 //! to each slice's own pure reducer. Side effects requested by any reducer are
 //! collected into [`AppEffect`] and executed by [`perform`].
 
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use windows::core::{Error, HRESULT};
+use windows_notifyicon::{NotifyIcon, NotifyIconEvent};
 use windows_reactor::*;
 
 use crate::core::config;
@@ -13,8 +19,149 @@ use crate::core::i18n::{fmt1, fmt2, tr};
 use crate::domain::folder;
 use crate::features::library::{self, LibraryMessage, LibraryModel};
 use crate::features::settings::{self, SettingsMessage, SettingsModel};
-use crate::platform::{tray, window};
+use crate::platform::window;
 use crate::services::{scanner, updater};
+
+const TRAY_TOOLTIP: &str = "KumoRust";
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
+
+/// Owns the application-lifetime objects that outlive the main component.
+///
+/// The notification icon is created on the Reactor UI thread and kept alive by
+/// the `App::run_with` resource. The main component can therefore be closed
+/// and opened again without recreating the tray integration.
+pub(crate) struct AppState {
+    app: AppContext,
+    icon: RefCell<Option<NotifyIcon>>,
+    window: RefCell<OpenWindow>,
+}
+
+enum OpenWindow {
+    Closed,
+    Opening,
+    Open(Callback<()>),
+}
+
+#[derive(Clone)]
+pub struct KumoAppInput(Rc<AppState>);
+
+impl PartialEq for KumoAppInput {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl AppState {
+    pub(crate) fn new(app: AppContext) -> Rc<Self> {
+        Rc::new(Self {
+            app,
+            icon: RefCell::new(None),
+            window: RefCell::new(OpenWindow::Closed),
+        })
+    }
+
+    pub(crate) fn add_icon(self: &Rc<Self>) -> windows_notifyicon::Result<()> {
+        let events = Rc::downgrade(self);
+        let path = tray_icon_path()?;
+        let result = NotifyIcon::new(path.clone())
+            .tooltip(TRAY_TOOLTIP)
+            .on_event(move |event| {
+                let Some(state) = events.upgrade() else {
+                    return;
+                };
+                match event {
+                    NotifyIconEvent::Activate { .. } => {
+                        if let Err(error) = state.open_window() {
+                            eprintln!("could not open KumoRust window: {error}");
+                        }
+                    }
+                    NotifyIconEvent::ContextMenu { position } => state.show_menu(position),
+                    NotifyIconEvent::Unavailable => {
+                        eprintln!("the Windows Shell could not restore the notification icon");
+                        state.exit();
+                    }
+                    _ => {}
+                }
+            })
+            .build();
+        let _ = std::fs::remove_file(path);
+        *self.icon.borrow_mut() = Some(result?);
+        Ok(())
+    }
+
+    fn show_menu(self: &Rc<Self>, position: windows_notifyicon::Point) {
+        let state = Rc::clone(self);
+        let open = Key::from("open");
+        let exit = Key::from("exit");
+        let menu = Menu::new(
+            [
+                MenuItem::item(open.clone(), tr("tray.open")),
+                MenuItem::separator("separator"),
+                MenuItem::item(exit.clone(), tr("tray.exit")),
+            ],
+            move |key| {
+                if key == open {
+                    if let Err(error) = state.open_window() {
+                        eprintln!("could not open KumoRust window: {error}");
+                    }
+                } else if key == exit {
+                    state.exit();
+                }
+            },
+        );
+        if let Err(error) = self
+            .app
+            .show_menu_at(ScreenPoint::new(position.x, position.y), menu)
+        {
+            eprintln!("could not show notification icon menu: {error}");
+        }
+    }
+
+    pub(crate) fn open_window(self: &Rc<Self>) -> windows::core::Result<()> {
+        let activate = {
+            let mut window = self.window.borrow_mut();
+            match &*window {
+                OpenWindow::Closed => {
+                    *window = OpenWindow::Opening;
+                    None
+                }
+                OpenWindow::Opening => return Ok(()),
+                OpenWindow::Open(activate) => Some(activate.clone()),
+            }
+        };
+        if let Some(activate) = activate {
+            activate.call(());
+            return Ok(());
+        }
+
+        if let Err(error) = self
+            .app
+            .open_component_window::<KumoApp>(KumoAppInput(Rc::clone(self)))
+        {
+            *self.window.borrow_mut() = OpenWindow::Closed;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn exit(&self) {
+        if let Err(error) = self.app.exit() {
+            eprintln!("could not exit KumoRust: {error}");
+        }
+    }
+}
+
+fn tray_icon_path() -> windows_notifyicon::Result<PathBuf> {
+    // windows-notifyicon accepts a path, while the application icon is embedded in the binary.
+    let path = std::env::temp_dir().join(format!("KumoRust-tray-{}.ico", std::process::id()));
+    std::fs::write(&path, TRAY_ICON_BYTES).map_err(|error| {
+        Error::new(
+            HRESULT(0x8000_4005_u32 as i32),
+            format!("could not prepare notification icon: {error}"),
+        )
+    })?;
+    Ok(path)
+}
 
 /// Top-level navigation route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +213,8 @@ impl AppModel {
 /// forwarded to the matching reducer.
 #[derive(Clone, Debug)]
 pub enum AppMessage {
+    /// Activates the existing main window after a tray interaction.
+    Activate,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -111,6 +260,7 @@ pub enum AppEffect {
 /// translates slice effects into root effects.
 pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
+        AppMessage::Activate => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -160,37 +310,58 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
 /// action or a folder-list change.
 pub struct KumoApp {
     model: AppModel,
+    state: Rc<AppState>,
 }
 
 impl Component for KumoApp {
     type Message = AppMessage;
-    type Input = ();
+    type Input = KumoAppInput;
 
-    fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
-        tray::ensure_initialized();
+    fn create(input: &KumoAppInput, context: &ComponentContext<Self>) -> Self {
+        *input.0.window.borrow_mut() =
+            OpenWindow::Open(context.sender().callback(|()| AppMessage::Activate));
         Self {
             model: AppModel::new(),
+            state: Rc::clone(&input.0),
         }
     }
 
     fn update(&mut self, message: AppMessage, context: &ComponentContext<Self>) {
+        let activate = matches!(&message, &AppMessage::Activate);
         let effect = update(&mut self.model, message);
-        perform(effect, context);
+        if activate {
+            if !context.activate_window() {
+                eprintln!("could not activate KumoRust window");
+            }
+        } else {
+            perform(effect, context);
+        }
     }
 
-    fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
-        view(&self.model, context)
+    fn view(&self, _input: &KumoAppInput, context: &mut ViewContext<Self>) -> View {
+        view(&self.model, self.state.icon.borrow().is_some(), context)
+    }
+}
+
+impl Drop for KumoApp {
+    fn drop(&mut self) {
+        *self.state.window.borrow_mut() = OpenWindow::Closed;
+        if self.state.icon.borrow().is_none() {
+            self.state.exit();
+        }
     }
 }
 
 /// Pure view: renders the current route through the matching feature view and
 /// wires navigation to root messages.
-pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
+pub fn view(model: &AppModel, hide_on_close: bool, context: &mut ViewContext<KumoApp>) -> View {
     context.window_title(window::MAIN_WINDOW_TITLE);
-    context.use_effect("main-window-close-to-hide", (), || {
-        window::install_close_to_hide();
-        None
-    });
+    if hide_on_close {
+        context.use_effect("main-window-close-to-hide", (), || {
+            window::install_close_to_hide();
+            None
+        });
+    }
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)

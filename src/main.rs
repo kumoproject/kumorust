@@ -12,7 +12,7 @@ use single_instance::SingleInstance;
 use windows::core::{Error, HRESULT};
 use windows_reactor::App;
 
-use crate::app::KumoApp;
+use crate::app::AppState;
 use crate::platform::window;
 use crate::services::updater;
 
@@ -27,6 +27,13 @@ fn main() -> windows::core::Result<()> {
     }
 
     updater::ensure_runtime();
-    App::run_component::<KumoApp>(())
-        .map_err(|error| Error::new(HRESULT(error.code().0), error.message()))
+    App::run_with(|app| {
+        let state = AppState::new(app.clone());
+        if let Err(error) = state.add_icon() {
+            eprintln!("could not add notification icon: {error}");
+        }
+        state.open_window()?;
+        Ok(state)
+    })
+    .map_err(|error| Error::new(HRESULT(error.code().0), error.message()))
 }

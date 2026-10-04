@@ -775,6 +775,7 @@ dependencies = [
  "single-instance",
  "url",
  "windows",
+ "windows-notifyicon",
  "windows-reactor",
  "winresource",
 ]
@@ -2101,6 +2102,15 @@ version = "0.100.0"
 source = "git+https://github.com/microsoft/windows-rs?rev=af92a168e17085b4b3fd4e88f9f2cb83893b8563#af92a168e17085b4b3fd4e88f9f2cb83893b8563"
 
 [[package]]
+name = "windows-notifyicon"
+version = "0.100.0"
+source = "git+https://github.com/microsoft/windows-rs?rev=af92a168e17085b4b3fd4e88f9f2cb83893b8563#af92a168e17085b4b3fd4e88f9f2cb83893b8563"
+dependencies = [
+ "windows-core",
+ "windows-window",
+]
+
+[[package]]
 name = "windows-numerics"
 version = "0.100.0"
 source = "git+https://github.com/microsoft/windows-rs?rev=af92a168e17085b4b3fd4e88f9f2cb83893b8563#af92a168e17085b4b3fd4e88f9f2cb83893b8563"
@@ -2190,6 +2200,14 @@ dependencies = [
 
 [[package]]
 name = "windows-time"
+version = "0.100.0"
+source = "git+https://github.com/microsoft/windows-rs?rev=af92a168e17085b4b3fd4e88f9f2cb83893b8563#af92a168e17085b4b3fd4e88f9f2cb83893b8563"
+dependencies = [
+ "windows-core",
+]
+
+[[package]]
+name = "windows-window"
 version = "0.100.0"
 source = "git+https://github.com/microsoft/windows-rs?rev=af92a168e17085b4b3fd4e88f9f2cb83893b8563#af92a168e17085b4b3fd4e88f9f2cb83893b8563"
 dependencies = [

@@ -232,10 +232,10 @@ flowchart LR
 - 第二次启动不会打开第二个窗口，而是查找主窗口并恢复、置前。
 - 主窗口使用 WinUI 3 / `windows-reactor`，Mica backdrop，最小尺寸为 800x600。
 - 自定义标题栏包含导航 pane 的开关。
-- 关闭按钮被 Win32 subclass 拦截，行为是隐藏窗口，不是退出进程。
-- 托盘图标提供“启动主界面”和“退出”菜单；退出菜单才会结束进程。
-- 托盘菜单会尝试通过动态加载 `uxtheme.dll` 使用深色系统菜单主题。
-- 托盘初始化失败不会阻止主窗口继续工作，因为状态用 `Option<TrayState>` 保存。
+- 托盘可用时，关闭按钮被 Win32 subclass 拦截并隐藏窗口；托盘“退出”菜单结束进程。
+- 没有托盘时，关闭按钮保留正常退出行为。
+- 托盘由 `windows-notifyicon` 管理隐藏窗口、Shell 恢复和事件分发；菜单交给 `windows-reactor` 显示。
+- 托盘初始化失败不会阻止主窗口继续工作；没有托盘时关闭主窗口会直接退出。
 
 ## 6. 架构地图
 
@@ -243,7 +243,7 @@ flowchart LR
 main.rs
   -> 单实例
   -> services::updater::ensure_runtime
-  -> windows_reactor::App::run_component<KumoApp>
+  -> windows_reactor::App::run_with (AppState + windows-notifyicon)
 
 app.rs
   -> AppModel / AppMessage / AppEffect
@@ -275,8 +275,7 @@ core
   -> error: 通用 I/O / message error
 
 platform
-  -> tray: 原生托盘
-  -> window: 激活、隐藏、退出
+  -> window: 激活、隐藏
 ```
 
 MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 Effect；根组件的 `perform` 执行文件系统、对话框、后台任务和进程操作；后台任务完成后再发回 Message。
