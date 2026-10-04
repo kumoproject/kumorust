@@ -109,6 +109,5 @@ $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
 .\updater.exe
 ```
 
-The published `windows-reactor` dependency uses crates.io version `0.100`.
-The remaining Git-based `windows-rs` dependencies are pinned to commit
-`a8a5d720331920100326c89044f950b703a5b4cd`.
+The `windows-rs` dependencies used by the application are pinned to commit
+`af92a168e17085b4b3fd4e88f9f2cb83893b8563`.
