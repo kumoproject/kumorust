@@ -227,6 +227,11 @@ pub enum AppMessage {
     Library(LibraryMessage),
     /// A settings interaction, forwarded to the settings reducer.
     Settings(SettingsMessage),
+    /// The asynchronous folder picker finished.
+    FolderPicked {
+        current_folders: Vec<String>,
+        result: Result<Option<PathBuf>, String>,
+    },
 }
 
 /// Side effects requested by any reducer and executed by [`perform`].
@@ -241,6 +246,11 @@ pub enum AppEffect {
     /// Show the system folder picker.
     PickFolder {
         current_folders: Vec<String>,
+    },
+    /// Handle the result returned by the asynchronous folder picker.
+    FolderPicked {
+        current_folders: Vec<String>,
+        result: Result<Option<PathBuf>, String>,
     },
     /// Persist the folder list (and rescan when requested).
     SaveFolders {
@@ -298,6 +308,13 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
                 AppEffect::SaveFolders { folders, rescan }
             }
             settings::SettingsEffect::StartUpdater => AppEffect::StartUpdater,
+        },
+        AppMessage::FolderPicked {
+            current_folders,
+            result,
+        } => AppEffect::FolderPicked {
+            current_folders,
+            result,
         },
     }
 }
@@ -433,7 +450,11 @@ where
         } => {
             context.spawn_background(move |_token| scan_task(generation, &folders));
         }
-        AppEffect::PickFolder { current_folders } => pick_folder(&current_folders, context),
+        AppEffect::PickFolder { current_folders } => request_folder(current_folders, context),
+        AppEffect::FolderPicked {
+            current_folders,
+            result,
+        } => apply_picked_folder(&current_folders, result, context),
         AppEffect::SaveFolders { folders, rescan } => {
             let sender = context.sender();
             match config::save_library_folders(&folders) {
@@ -486,15 +507,35 @@ fn scan_task(generation: u64, folders: &[String]) -> AppMessage {
     })
 }
 
-fn pick_folder<C>(current_folders: &[String], context: &ComponentContext<C>)
+fn request_folder<C>(current_folders: Vec<String>, context: &ComponentContext<C>)
 where
     C: Component<Message = AppMessage>,
 {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title(tr("folder_picker.title"))
-        .pick_folder()
-    else {
-        return;
+    let _ = windows_pickers::FolderPicker::new()
+        .title(tr("folder_picker.title"))
+        .request(context, move |result| AppMessage::FolderPicked {
+            current_folders,
+            result: result.map_err(|error| error.to_string()),
+        });
+}
+
+fn apply_picked_folder<C>(
+    current_folders: &[String],
+    result: Result<Option<PathBuf>, String>,
+    context: &ComponentContext<C>,
+) where
+    C: Component<Message = AppMessage>,
+{
+    let path = match result {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(error) => {
+            let _ = context.sender().send(AppMessage::Notice(fmt1(
+                "error.folder_picker_failed",
+                error,
+            )));
+            return;
+        }
     };
     let folder = path.to_string_lossy().into_owned();
     let sender = context.sender();
