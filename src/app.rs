@@ -34,6 +34,7 @@ pub(crate) struct AppState {
     app: AppContext,
     icon: RefCell<Option<NotifyIcon>>,
     window: RefCell<OpenWindow>,
+    activation_listener: RefCell<Option<window::ActivationListener>>,
 }
 
 enum OpenWindow {
@@ -57,7 +58,21 @@ impl AppState {
             app,
             icon: RefCell::new(None),
             window: RefCell::new(OpenWindow::Closed),
+            activation_listener: RefCell::new(None),
         })
+    }
+
+    pub(crate) fn start_activation_listener(self: &Rc<Self>) -> windows::core::Result<()> {
+        let events = Rc::downgrade(self);
+        let callback = self.app.callback(move || {
+            let Some(state) = events.upgrade() else {
+                return Ok(());
+            };
+            state.open_window()
+        });
+        let listener = window::ActivationListener::start(callback)?;
+        *self.activation_listener.borrow_mut() = Some(listener);
+        Ok(())
     }
 
     pub(crate) fn add_icon(self: &Rc<Self>) -> windows_notifyicon::Result<()> {
@@ -215,6 +230,8 @@ impl AppModel {
 pub enum AppMessage {
     /// Activates the existing main window after a tray interaction.
     Activate,
+    /// Completes the native foreground activation queued for a tray request.
+    WindowForegrounded,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -227,6 +244,11 @@ pub enum AppMessage {
     Library(LibraryMessage),
     /// A settings interaction, forwarded to the settings reducer.
     Settings(SettingsMessage),
+    /// The asynchronous folder picker finished.
+    FolderPicked {
+        current_folders: Vec<String>,
+        result: Result<Option<PathBuf>, String>,
+    },
 }
 
 /// Side effects requested by any reducer and executed by [`perform`].
@@ -241,6 +263,11 @@ pub enum AppEffect {
     /// Show the system folder picker.
     PickFolder {
         current_folders: Vec<String>,
+    },
+    /// Handle the result returned by the asynchronous folder picker.
+    FolderPicked {
+        current_folders: Vec<String>,
+        result: Result<Option<PathBuf>, String>,
     },
     /// Persist the folder list (and rescan when requested).
     SaveFolders {
@@ -261,6 +288,7 @@ pub enum AppEffect {
 pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
         AppMessage::Activate => AppEffect::None,
+        AppMessage::WindowForegrounded => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -299,6 +327,13 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             }
             settings::SettingsEffect::StartUpdater => AppEffect::StartUpdater,
         },
+        AppMessage::FolderPicked {
+            current_folders,
+            result,
+        } => AppEffect::FolderPicked {
+            current_folders,
+            result,
+        },
     }
 }
 
@@ -330,7 +365,12 @@ impl Component for KumoApp {
         let activate = matches!(&message, &AppMessage::Activate);
         let effect = update(&mut self.model, message);
         if activate {
-            if !context.activate_window() {
+            let reactor_accepted = context.activate_window();
+            let foreground_accepted = context.run_window(|window_handle| {
+                window::activate_window_handle(window_handle.as_raw());
+                AppMessage::WindowForegrounded
+            });
+            if !reactor_accepted && !foreground_accepted {
                 eprintln!("could not activate KumoRust window");
             }
         } else {
@@ -433,7 +473,11 @@ where
         } => {
             context.spawn_background(move |_token| scan_task(generation, &folders));
         }
-        AppEffect::PickFolder { current_folders } => pick_folder(&current_folders, context),
+        AppEffect::PickFolder { current_folders } => request_folder(current_folders, context),
+        AppEffect::FolderPicked {
+            current_folders,
+            result,
+        } => apply_picked_folder(&current_folders, result, context),
         AppEffect::SaveFolders { folders, rescan } => {
             let sender = context.sender();
             match config::save_library_folders(&folders) {
@@ -486,15 +530,35 @@ fn scan_task(generation: u64, folders: &[String]) -> AppMessage {
     })
 }
 
-fn pick_folder<C>(current_folders: &[String], context: &ComponentContext<C>)
+fn request_folder<C>(current_folders: Vec<String>, context: &ComponentContext<C>)
 where
     C: Component<Message = AppMessage>,
 {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title(tr("folder_picker.title"))
-        .pick_folder()
-    else {
-        return;
+    let _ = windows_pickers::FolderPicker::new()
+        .title(tr("folder_picker.title"))
+        .request(context, move |result| AppMessage::FolderPicked {
+            current_folders,
+            result: result.map_err(|error| error.to_string()),
+        });
+}
+
+fn apply_picked_folder<C>(
+    current_folders: &[String],
+    result: Result<Option<PathBuf>, String>,
+    context: &ComponentContext<C>,
+) where
+    C: Component<Message = AppMessage>,
+{
+    let path = match result {
+        Ok(Some(path)) => path,
+        Ok(None) => return,
+        Err(error) => {
+            let _ = context.sender().send(AppMessage::Notice(fmt1(
+                "error.folder_picker_failed",
+                error,
+            )));
+            return;
+        }
     };
     let folder = path.to_string_lossy().into_owned();
     let sender = context.sender();

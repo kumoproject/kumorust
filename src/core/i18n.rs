@@ -211,6 +211,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "This folder is already in the library",
     ),
     (
+        "error.folder_picker_failed",
+        "无法打开文件夹选择器：{}",
+        "Could not open the folder picker: {}",
+    ),
+    (
         "error.save_failed",
         "设置保存失败：{}",
         "Failed to save settings: {}",
