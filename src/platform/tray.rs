@@ -36,7 +36,7 @@ struct TrayState {
 impl Drop for TrayState {
     fn drop(&mut self) {
         unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE as u32, &self.icon_data);
+            let _ = Shell_NotifyIconW(NIM_DELETE as u32, &mut self.icon_data);
             let _ = DestroyMenu(self.menu);
             let _ = DestroyWindow(self.hwnd);
         }
@@ -51,7 +51,7 @@ fn enable_system_menu_theme() {
 
     unsafe {
         let module = LoadLibraryA(s!("uxtheme.dll"));
-        if module.0.is_null() {
+        if module.is_null() {
             return;
         }
 
@@ -71,7 +71,7 @@ fn initialize() -> Option<TrayState> {
     enable_system_menu_theme();
 
     let instance = unsafe { windows::Win32::libloaderapi::GetModuleHandleW(PCWSTR::null()) };
-    if instance.0.is_null() {
+    if instance.is_null() {
         return None;
     }
 
@@ -87,7 +87,7 @@ fn initialize() -> Option<TrayState> {
     }
 
     let menu = unsafe { CreatePopupMenu() };
-    if menu.0.is_null() {
+    if menu.is_null() {
         return None;
     }
 
@@ -120,7 +120,7 @@ fn initialize() -> Option<TrayState> {
             PCWSTR::from_raw(TRAY_ICON_ID as *const u16),
         )
     };
-    if icon.0.is_null() {
+    if icon.is_null() {
         unsafe {
             let _ = DestroyMenu(menu);
         }
@@ -143,7 +143,7 @@ fn initialize() -> Option<TrayState> {
             None,
         )
     };
-    if hwnd.0.is_null() {
+    if hwnd.is_null() {
         unsafe {
             let _ = DestroyMenu(menu);
         }
@@ -162,7 +162,7 @@ fn initialize() -> Option<TrayState> {
     let tooltip = "KumoRust".encode_utf16().collect::<Vec<_>>();
     icon_data.szTip[..tooltip.len()].copy_from_slice(&tooltip);
 
-    if !unsafe { Shell_NotifyIconW(NIM_ADD as u32, &icon_data).as_bool() } {
+    if !unsafe { Shell_NotifyIconW(NIM_ADD as u32, &mut icon_data).as_bool() } {
         unsafe {
             let _ = DestroyWindow(hwnd);
             let _ = DestroyMenu(menu);
@@ -184,10 +184,10 @@ unsafe extern "system" fn tray_window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if message == TRAY_CALLBACK_MESSAGE
-        && (lparam.0 as u32 == WM_RBUTTONUP as u32 || lparam.0 as u32 == WM_CONTEXTMENU as u32)
+        && (lparam as u32 == WM_RBUTTONUP as u32 || lparam as u32 == WM_CONTEXTMENU as u32)
     {
         show_context_menu(hwnd);
-        return LRESULT(0);
+        return 0;
     }
 
     unsafe { DefWindowProcW(hwnd, message, _wparam, lparam) }
@@ -215,8 +215,7 @@ fn show_context_menu(hwnd: HWND) {
             None,
         )
         .0 as usize;
-        let _ =
-            windows::Win32::winuser::PostMessageW(Some(hwnd), WM_NULL as u32, WPARAM(0), LPARAM(0));
+        let _ = windows::Win32::winuser::PostMessageW(Some(hwnd), WM_NULL as u32, 0, 0);
 
         match command {
             SHOW_MENU_ID => crate::platform::window::activate_main_window(),

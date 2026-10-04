@@ -4,12 +4,11 @@ use std::path::Path;
 use icoextract_rs::{ExtractedIcon, IconExtractor};
 use image::ImageFormat;
 use windows::Win32::shellapi::ExtractIconExW;
-use windows::Win32::windef::{HBITMAP, HGDIOBJ, HICON};
+use windows::Win32::windef::{HBITMAP, HICON};
 use windows::Win32::wingdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDIBits,
     GetObjectW,
 };
-use windows::Win32::winnt::HANDLE;
 use windows::Win32::winuser::{DestroyIcon, GetDC, GetIconInfo, ReleaseDC};
 use windows::core::PCWSTR;
 
@@ -58,7 +57,7 @@ fn try_extract_icon_png(path: &Path) -> Option<Vec<u8>> {
             1,
         )
     };
-    if count == 0 || icon.0.is_null() {
+    if count == 0 || icon.is_null() {
         return None;
     }
 
@@ -75,16 +74,16 @@ fn extract_icon_bitmap(icon: HICON) -> Option<Vec<u8>> {
         return None;
     }
 
-    let result = (!icon_info.hbmColor.0.is_null())
+    let result = (!icon_info.hbmColor.is_null())
         .then(|| extract_color_bitmap(icon_info.hbmColor))
         .flatten();
 
     unsafe {
-        if !icon_info.hbmColor.0.is_null() {
-            let _ = DeleteObject(HGDIOBJ(icon_info.hbmColor.0));
+        if !icon_info.hbmColor.is_null() {
+            let _ = DeleteObject(icon_info.hbmColor.cast());
         }
-        if !icon_info.hbmMask.0.is_null() {
-            let _ = DeleteObject(HGDIOBJ(icon_info.hbmMask.0));
+        if !icon_info.hbmMask.is_null() {
+            let _ = DeleteObject(icon_info.hbmMask.cast());
         }
     }
     result
@@ -95,7 +94,7 @@ fn extract_color_bitmap(bitmap_handle: HBITMAP) -> Option<Vec<u8>> {
     let object_size = i32::try_from(std::mem::size_of::<BITMAP>()).ok()?;
     let object_result = unsafe {
         GetObjectW(
-            HANDLE(bitmap_handle.0),
+            bitmap_handle.cast(),
             object_size,
             Some((&mut bitmap as *mut BITMAP).cast()),
         )
@@ -128,7 +127,7 @@ fn extract_color_bitmap(bitmap_handle: HBITMAP) -> Option<Vec<u8>> {
     };
 
     let hdc = unsafe { GetDC(None) };
-    if hdc.0.is_null() {
+    if hdc.is_null() {
         return None;
     }
     let copied = unsafe {

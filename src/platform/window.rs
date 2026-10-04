@@ -27,8 +27,7 @@ pub(crate) fn request_exit_application() {
         ALLOW_CLOSE.store(true, Ordering::Release);
     }
 
-    let posted =
-        unsafe { PostMessageW(Some(hwnd), WM_CLOSE as u32, WPARAM(0), LPARAM(0)).as_bool() };
+    let posted = unsafe { PostMessageW(Some(hwnd), WM_CLOSE as u32, 0, 0).as_bool() };
     if subclass_installed && !posted {
         ALLOW_CLOSE.store(false, Ordering::Release);
     }
@@ -82,7 +81,7 @@ pub(crate) fn activate_existing_main_window() {
 fn find_window(title: &str) -> Option<HWND> {
     let title = title.encode_utf16().chain([0]).collect::<Vec<_>>();
     let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR::from_raw(title.as_ptr())) };
-    (!hwnd.0.is_null()).then_some(hwnd)
+    (!hwnd.is_null()).then_some(hwnd)
 }
 
 unsafe extern "system" fn close_to_hide_subclass_proc(
@@ -101,7 +100,7 @@ unsafe extern "system" fn close_to_hide_subclass_proc(
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
-        return LRESULT(0);
+        return 0;
     }
 
     if message == WM_NCDESTROY as u32 {
