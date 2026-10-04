@@ -7,4 +7,5 @@ pub mod format;
 pub mod info_bar;
 pub mod layout;
 pub mod settings_card;
+pub mod settings_expander;
 pub mod tokens;

@@ -7,7 +7,8 @@ use crate::features::settings::message::SettingsMessage;
 use crate::features::settings::model::SettingsModel;
 use crate::ui::info_bar::info_bar;
 use crate::ui::layout::vstack;
-use crate::ui::settings_card::{SettingsCard, SettingsExpander};
+use crate::ui::settings_card::SettingsCard;
+use crate::ui::settings_expander::SettingsExpander;
 use crate::ui::tokens::{TEXT_SECONDARY, body, caption, subtitle, title};
 
 /// Renders the settings page from the settings model.
@@ -24,29 +25,33 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
     let folder_items = model
         .folders
         .iter()
-        .map(|folder| folder_card(folder, cx).into_expander_item())
+        .map(|folder| folder_card(folder, cx).into())
         .collect::<Vec<_>>();
 
-    let mut folders_expander =
+    let folder_items = if model.folders.is_empty() {
+        vec![
+            Border::new()
+                .padding(Thickness::xy(58.0, 18.0))
+                .content(StackPanel::new().spacing(7.0).children((
+                    body(tr("settings.indexed.empty")),
+                    caption(tr("settings.indexed.empty.caption")),
+                )))
+                .into(),
+        ]
+    } else {
+        folder_items
+    };
+
+    let folders_expander =
         SettingsExpander::new(tr("settings.indexed"))
             .description(tr("settings.indexed.description"))
             .header_icon(SymbolIcon::new().symbol(Symbol::Library))
             .items(folder_items)
-            .expanded(model.folders_expanded)
+            .is_expanded(model.folders_expanded)
             .on_expanding(cx.callback(|expanded| {
                 AppMessage::Settings(SettingsMessage::FoldersExpanded(expanded))
             }));
-    if model.folders.is_empty() {
-        folders_expander = folders_expander.items_footer(
-            Border::new().padding(Thickness::xy(58.0, 18.0)).content(
-                StackPanel::new().spacing(7.0).children((
-                    body(tr("settings.indexed.empty")),
-                    caption(tr("settings.indexed.empty.caption")),
-                )),
-            ),
-        );
-    }
-    let folders_content = folders_expander.into_element();
+    let folders_content: View = folders_expander.into();
 
     let check_update = cx.message(AppMessage::Settings(SettingsMessage::CheckUpdate));
     let update_card = update_card(&model.update_status, move || {
