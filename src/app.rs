@@ -339,7 +339,7 @@ impl Component for KumoApp {
     }
 
     fn view(&self, _input: &KumoAppInput, context: &mut ViewContext<Self>) -> View {
-        view(&self.model, self.state.icon.borrow().is_some(), context)
+        view(&self.model, context)
     }
 }
 
@@ -354,14 +354,8 @@ impl Drop for KumoApp {
 
 /// Pure view: renders the current route through the matching feature view and
 /// wires navigation to root messages.
-pub fn view(model: &AppModel, hide_on_close: bool, context: &mut ViewContext<KumoApp>) -> View {
+pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     context.window_title(window::MAIN_WINDOW_TITLE);
-    if hide_on_close {
-        context.use_effect("main-window-close-to-hide", (), || {
-            window::install_close_to_hide();
-            None
-        });
-    }
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)

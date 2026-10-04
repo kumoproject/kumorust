@@ -232,8 +232,8 @@ flowchart LR
 - 第二次启动不会打开第二个窗口，而是查找主窗口并恢复、置前。
 - 主窗口使用 WinUI 3 / `windows-reactor`，Mica backdrop，最小尺寸为 800x600。
 - 自定义标题栏包含导航 pane 的开关。
-- 托盘可用时，关闭按钮被 Win32 subclass 拦截并隐藏窗口；托盘“退出”菜单结束进程。
-- 没有托盘时，关闭按钮保留正常退出行为。
+- 主窗口关闭后销毁当前 Reactor component；托盘和 AppState 继续运行，之后可通过“启动主界面”重新创建或激活窗口。
+- 托盘“退出”菜单结束进程；没有托盘时关闭主窗口会直接退出。
 - 托盘由 `windows-notifyicon` 管理隐藏窗口、Shell 恢复和事件分发；菜单交给 `windows-reactor` 显示。
 - 托盘初始化失败不会阻止主窗口继续工作；没有托盘时关闭主窗口会直接退出。
 
@@ -275,7 +275,7 @@ core
   -> error: 通用 I/O / message error
 
 platform
-  -> window: 激活、隐藏
+  -> window: 激活
 ```
 
 MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 Effect；根组件的 `perform` 执行文件系统、对话框、后台任务和进程操作；后台任务完成后再发回 Message。
