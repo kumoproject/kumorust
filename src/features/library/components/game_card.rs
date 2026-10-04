@@ -89,6 +89,7 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
                     .children((icon_frame, details, launch)),
             ),
         )
+        .into()
 }
 
 /// The generic "game" glyph shown when no icon was cached.
@@ -98,5 +99,6 @@ fn fallback_icon() -> View {
         .height(76.0)
         .horizontal_alignment(HorizontalAlignment::Center)
         .vertical_alignment(VerticalAlignment::Center)
-        .slot(ViewboxSlot::Child, FontIcon::new().glyph("\u{E7FC}"))
+        .child(FontIcon::new().glyph("\u{E7FC}"))
+        .into()
 }

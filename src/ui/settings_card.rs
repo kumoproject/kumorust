@@ -46,51 +46,54 @@ fn render_card(card: SettingsCard) -> View {
         content,
     } = card;
 
-    // 左边的图标
-    let icon: View = match header_icon {
-        Some(icon) => Border::new()
+    // Keep the first grid column available for cards without an icon.
+    let mut icon = Border::new().width(0.0).height(1.0);
+    if let Some(icon_view) = header_icon {
+        icon = icon
             .width(20.0)
             .height(20.0)
             .margin(Thickness::new(2.0, 0.0, 20.0, 0.0))
             .horizontal_alignment(HorizontalAlignment::Center)
             .vertical_alignment(VerticalAlignment::Center)
-            .content(icon),
+            .content(icon_view);
+    }
+    let icon: View = icon.into();
 
-        None => Border::new().width(0.0).height(1.0).content(View::empty()),
-    };
-
-    // 下面的描述
-    let description: View = match description {
-        Some(text) => TextBlock::new()
-            .text(text)
-            .font_size(12.0)
-            .foreground(Color::rgb(120, 120, 120))
-            .text_wrapping(TextWrapping::Wrap)
+    let mut detail_children: Vec<View> = vec![
+        TextBlock::new()
+            .text(header)
+            .font_size(14.0)
+            .font_weight(FontWeight::SEMI_BOLD)
             .into(),
+    ];
+    if let Some(text) = description {
+        detail_children.push(
+            TextBlock::new()
+                .text(text)
+                .font_size(12.0)
+                .foreground(Color::rgb(120, 120, 120))
+                .text_wrapping(TextWrapping::Wrap)
+                .into(),
+        );
+    }
 
-        None => View::empty(),
-    };
-
-    // 标题和描述
+    // Add the optional description only when it exists.
     let details: View = StackPanel::new()
         .spacing(4.0)
         .vertical_alignment(VerticalAlignment::Center)
-        .children((
-            TextBlock::new()
-                .text(header)
-                .font_size(14.0)
-                .font_weight(FontWeight::SEMI_BOLD),
-            description,
-        ));
+        .children(detail_children)
+        .into();
 
-    // 右边的控件
-    let trailing: View = Border::new()
+    // Keep the trailing grid column, but omit its content relation when unused.
+    let mut trailing = Border::new()
         .horizontal_alignment(HorizontalAlignment::Right)
         .vertical_alignment(VerticalAlignment::Center)
-        .grid_column(2)
-        .content(content.unwrap_or_else(View::empty));
+        .grid_column(2);
+    if let Some(content) = content {
+        trailing = trailing.content(content);
+    }
+    let trailing: View = trailing.into();
 
-    // 一行三列：图标、文字、右侧控件
     let row: View = Grid::new()
         .columns([GridLength::Auto, GridLength::STAR, GridLength::Auto])
         .vertical_alignment(VerticalAlignment::Center)
@@ -98,9 +101,9 @@ fn render_card(card: SettingsCard) -> View {
             Border::new().grid_column(0).content(icon),
             Border::new().grid_column(1).content(details),
             Border::new().grid_column(2).content(trailing),
-        ));
+        ))
+        .into();
 
-    // 最外层卡片
     Border::new()
         .min_width(148.0)
         .min_height(68.0)
@@ -112,4 +115,5 @@ fn render_card(card: SettingsCard) -> View {
         .border_thickness(1.0)
         .corner_radius(4.0)
         .content(row)
+        .into()
 }

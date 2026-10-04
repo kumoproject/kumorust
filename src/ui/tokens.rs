@@ -7,6 +7,7 @@ pub const TEXT_TERTIARY: Color = Color::rgb(96, 96, 96);
 
 /// Page heading (28px semibold).
 pub fn title(text: impl Into<String>) -> TextBlock {
+    let text = text.into();
     TextBlock::new()
         .text(text)
         .font_size(28.0)
@@ -15,6 +16,7 @@ pub fn title(text: impl Into<String>) -> TextBlock {
 
 /// Section heading (20px semibold).
 pub fn subtitle(text: impl Into<String>) -> TextBlock {
+    let text = text.into();
     TextBlock::new()
         .text(text)
         .font_size(20.0)
@@ -23,10 +25,10 @@ pub fn subtitle(text: impl Into<String>) -> TextBlock {
 
 /// Regular body text (14px).
 pub fn body(text: impl Into<String>) -> TextBlock {
-    TextBlock::new().text(text).font_size(14.0)
+    TextBlock::new().text(text.into()).font_size(14.0)
 }
 
 /// Small caption text (12px).
 pub fn caption(text: impl Into<String>) -> TextBlock {
-    TextBlock::new().text(text).font_size(12.0)
+    TextBlock::new().text(text.into()).font_size(12.0)
 }

@@ -8,7 +8,7 @@ use crate::features::settings::SettingsMessage;
 use crate::ui::buttons::icon_content;
 use crate::ui::format::format_epoch_age;
 use crate::ui::info_bar::info_bar;
-use crate::ui::layout::vstack;
+use crate::ui::layout::keyed_vstack;
 use crate::ui::tokens::{TEXT_SECONDARY, body, subtitle, title};
 
 /// Renders the library page from the library model.
@@ -67,22 +67,22 @@ pub fn view(
             .on_selection_changed(
                 cx.callback(|index| AppMessage::Library(LibraryMessage::Select(index))),
             )
-            .collection_slot(
-                ListViewSlot::Items,
-                model.games.iter().map(|game| {
-                    KeyedView::new(
-                        game.path.clone(),
-                        ListViewItem::new()
-                            .tag(game.path.clone())
-                            .content(game_card(game, cx)),
-                    )
-                }),
-            )
+            .items(model.games.iter().map(|game| {
+                DataItem::new(game.path.clone(), &game.name).content(game_card(game, cx))
+            }))
+            .into()
     };
+
+    let mut page_children = vec![KeyedView::new("header", header)];
+    if let Some(info_bar) = info_bar(notice) {
+        page_children.push(KeyedView::new("notice", info_bar));
+    }
+    page_children.push(KeyedView::new("body", body));
 
     ScrollViewer::new()
         .margin(Thickness::uniform(24.0))
-        .content(vstack((header, info_bar(notice), body)))
+        .content(keyed_vstack(page_children))
+        .into()
 }
 
 /// The empty library placeholder, with guidance or a scan progress ring.
@@ -134,7 +134,8 @@ fn empty_library_state(
                 .width(38.0)
                 .height(38.0)
                 .horizontal_alignment(HorizontalAlignment::Center)
-                .slot(ViewboxSlot::Child, FontIcon::new().glyph(glyph)),
+                .child(FontIcon::new().glyph(glyph))
+                .into(),
         );
     }
     content.push(
@@ -175,13 +176,15 @@ fn empty_library_state(
                     .spacing(2.0)
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .children((empty_content, open_settings)),
-            );
+            )
+            .into();
     }
 
     Border::new()
         .background(ThemeBrush::SolidBackground)
         .corner_radius(8.0)
         .content(empty_content)
+        .into()
 }
 
 /// Header button that restarts the library scan.
@@ -191,6 +194,7 @@ fn refresh_button(cx: &ViewContext<KumoApp>) -> View {
         .on_click(cx.message(AppMessage::Library(LibraryMessage::Refresh)))
         .content(icon_content(Symbol::Refresh, tr("library.refresh")))
         .tooltip(tr("library.refresh.tooltip"))
+        .into()
 }
 
 /// Subtle add-folder button that routes to the settings slice via the root.
@@ -199,6 +203,7 @@ fn add_folder_button(cx: &ViewContext<KumoApp>) -> View {
         .style(ButtonStyle::Subtle)
         .on_click(cx.message(AppMessage::Settings(SettingsMessage::AddFolder)))
         .content(icon_content(Symbol::Add, tr("settings.add_folder")))
+        .into()
 }
 
 /// Human-readable scan status line for the library header.

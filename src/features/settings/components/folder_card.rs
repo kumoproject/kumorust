@@ -35,4 +35,5 @@ pub fn add_folder_button(cx: &ViewContext<KumoApp>, accent: bool) -> View {
     button
         .on_click(cx.message(AppMessage::Settings(SettingsMessage::AddFolder)))
         .content(icon_content(Symbol::Add, tr("settings.add_folder")))
+        .into()
 }

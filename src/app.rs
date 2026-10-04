@@ -212,13 +212,8 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
             NavigationViewItem::new()
                 .tag(tag)
                 .is_selected(model.route.tag() == tag)
-                .slots([
-                    SlotView::new(NavigationViewItemSlot::Content, label),
-                    SlotView::new(
-                        NavigationViewItemSlot::Icon,
-                        SymbolIcon::new().symbol(symbol),
-                    ),
-                ]),
+                .content(label)
+                .icon(Icon::from(symbol)),
         )
     });
 
@@ -239,11 +234,11 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
         .on_is_pane_open_changed(context.callback(AppMessage::PaneOpenChanged))
         .is_settings_visible(false)
         .is_back_button_visible(NavigationViewBackButtonVisible::Collapsed)
-        .on_selected_tag_changed(context.callback(AppMessage::TagChanged))
-        .slots([
-            SlotView::collection(NavigationViewSlot::MenuItems, menu_items),
-            SlotView::new(NavigationViewSlot::Content, content),
-        ]);
+        .on_selected_tag_changed(context.callback(|tag: Option<std::rc::Rc<str>>| {
+            AppMessage::TagChanged(tag.map(|value| value.to_string()))
+        }))
+        .keyed_menu_items(menu_items)
+        .content(content);
 
     let title_bar = TitleBar::new()
         .preferred_height(WindowTitleBarHeight::Standard)
@@ -255,6 +250,7 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     StackPanel::new()
         .orientation(Orientation::Vertical)
         .children((title_bar, navigation))
+        .into()
 }
 
 /// Runs an effect against the owning component context. This is the only

@@ -6,7 +6,7 @@ use crate::features::settings::components::{add_folder_button, folder_card, upda
 use crate::features::settings::message::SettingsMessage;
 use crate::features::settings::model::SettingsModel;
 use crate::ui::info_bar::info_bar;
-use crate::ui::layout::vstack;
+use crate::ui::layout::keyed_vstack;
 use crate::ui::settings_card::SettingsCard;
 use crate::ui::settings_expander::SettingsExpander;
 use crate::ui::tokens::{TEXT_SECONDARY, body, caption, subtitle, title};
@@ -58,18 +58,26 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
         let _ = check_update.call(());
     });
 
-    ScrollViewer::new()
-        .margin(Thickness::uniform(24.0))
-        .content(vstack((
-            title(tr("nav.settings")),
+    let mut page_children = vec![
+        KeyedView::new("title", title(tr("nav.settings"))),
+        KeyedView::new(
+            "subtitle",
             TextBlock::new()
                 .text(tr("settings.subtitle"))
                 .font_size(14.0)
                 .foreground(TEXT_SECONDARY),
-            library_card,
-            folders_content,
-            subtitle(tr("settings.updates")),
-            update_card,
-            info_bar(notice),
-        )))
+        ),
+        KeyedView::new("library", library_card),
+        KeyedView::new("folders", folders_content),
+        KeyedView::new("updates-heading", subtitle(tr("settings.updates"))),
+        KeyedView::new("updates", update_card),
+    ];
+    if let Some(info_bar) = info_bar(notice) {
+        page_children.push(KeyedView::new("notice", info_bar));
+    }
+
+    ScrollViewer::new()
+        .margin(Thickness::uniform(24.0))
+        .content(keyed_vstack(page_children))
+        .into()
 }

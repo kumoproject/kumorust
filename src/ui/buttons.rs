@@ -6,4 +6,5 @@ pub fn icon_content(symbol: Symbol, label: impl Into<String>) -> View {
         .orientation(Orientation::Horizontal)
         .spacing(6.0)
         .children((SymbolIcon::new().symbol(symbol), label.into()))
+        .into()
 }

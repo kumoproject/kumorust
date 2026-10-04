@@ -33,6 +33,9 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e170
 ] }
 windows-reactor = "0.100"
 
+[patch.crates-io]
+windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e17085b4b3fd4e88f9f2cb83893b8563" }
+
 [build-dependencies]
 winresource = "0.1.31"
 

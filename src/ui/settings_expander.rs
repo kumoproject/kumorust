@@ -69,39 +69,52 @@ fn render_expander(expander: SettingsExpander) -> View {
         on_expanding: on_is_expanded_changed,
     } = expander;
 
-    let icon = match header_icon {
-        Some(icon) => Border::new()
+    // Keep the first grid column available for expanders without an icon.
+    let mut icon = Border::new().width(0.0).height(1.0);
+    if let Some(icon_view) = header_icon {
+        icon = icon
             .width(20.0)
             .height(20.0)
             .margin(Thickness::new(2.0, 0.0, 20.0, 0.0))
             .horizontal_alignment(HorizontalAlignment::Center)
             .vertical_alignment(VerticalAlignment::Center)
-            .content(icon),
-        None => Border::new().width(0.0).height(1.0).content(View::empty()),
-    };
+            .content(icon_view);
+    }
+    let icon: View = icon.into();
 
-    let description: View = match description {
-        Some(value) => TextBlock::new()
-            .text(value)
-            .font_size(12.0)
-            .foreground(Color::rgb(120, 120, 120))
-            .text_wrapping(TextWrapping::Wrap)
-            .into(),
-        None => View::empty(),
-    };
-
-    let details = StackPanel::new().spacing(4.0).children((
+    let mut detail_children: Vec<View> = vec![
         TextBlock::new()
             .text(header)
             .font_size(14.0)
-            .font_weight(FontWeight::SEMI_BOLD),
-        description,
-    ));
+            .font_weight(FontWeight::SEMI_BOLD)
+            .into(),
+    ];
+    if let Some(value) = description {
+        detail_children.push(
+            TextBlock::new()
+                .text(value)
+                .font_size(12.0)
+                .foreground(Color::rgb(120, 120, 120))
+                .text_wrapping(TextWrapping::Wrap)
+                .into(),
+        );
+    }
 
-    let trailing = Border::new()
-        .horizontal_alignment(HorizontalAlignment::Right)
+    // Add the optional description only when it exists.
+    let details: View = StackPanel::new()
+        .spacing(4.0)
         .vertical_alignment(VerticalAlignment::Center)
-        .content(content.unwrap_or_else(View::empty));
+        .children(detail_children)
+        .into();
+
+    // Keep the trailing grid column, but omit its content relation when unused.
+    let mut trailing = Border::new()
+        .horizontal_alignment(HorizontalAlignment::Right)
+        .vertical_alignment(VerticalAlignment::Center);
+    if let Some(content) = content {
+        trailing = trailing.content(content);
+    }
+    let trailing: View = trailing.into();
 
     let header = Border::new()
         .min_height(68.0)
@@ -139,9 +152,7 @@ fn render_expander(expander: SettingsExpander) -> View {
         .min_height(68.0)
         .horizontal_alignment(HorizontalAlignment::Stretch)
         .vertical_alignment(VerticalAlignment::Top)
-        // 因内部是 Expander 自带 background brush thickness corner_radius 等故无需重复设置
-        .content(expander.slots([
-            SlotView::new(ExpanderSlot::Header, header),
-            SlotView::new(ExpanderSlot::Content, items),
-        ]))
+        // Expander supplies its own background, border, and corner radius.
+        .content(expander.header(header).content(items))
+        .into()
 }
