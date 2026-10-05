@@ -398,6 +398,7 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)
+            .icon(concat!(env!("CARGO_MANIFEST_DIR"), "\\assets\\app.ico"))
             .constraints(WindowConstraints {
                 min_width: Some(800.0),
                 min_height: Some(600.0),
