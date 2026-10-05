@@ -18,10 +18,7 @@ pub fn folder_card(folder: &str, cx: &ViewContext<KumoApp>) -> SettingsCard {
         .content(SymbolIcon::new().symbol(Symbol::Delete))
         .tooltip(tr("settings.remove_folder"));
 
-    SettingsCard::new(tr("settings.folder"))
-        .description(folder)
-        .header_icon(SymbolIcon::new().symbol(Symbol::Library))
-        .content(remove)
+    SettingsCard::new(folder).expander_item().content(remove)
 }
 
 /// Button that asks the settings model to open the system folder picker.

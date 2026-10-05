@@ -6,6 +6,14 @@ pub struct SettingsCard {
     header_icon: Option<View>,
     description: Option<String>,
     content: Option<View>,
+    style: SettingsCardStyle,
+}
+
+#[derive(Clone, Copy, Default)]
+enum SettingsCardStyle {
+    #[default]
+    Default,
+    ExpanderItem,
 }
 
 impl SettingsCard {
@@ -30,6 +38,12 @@ impl SettingsCard {
         self.content = Some(value.into());
         self
     }
+
+    /// Uses the compact, edge-to-edge row style used by SettingsExpander items.
+    pub fn expander_item(mut self) -> Self {
+        self.style = SettingsCardStyle::ExpanderItem;
+        self
+    }
 }
 
 impl From<SettingsCard> for View {
@@ -41,10 +55,26 @@ impl From<SettingsCard> for View {
 fn render_card(card: SettingsCard) -> View {
     let SettingsCard {
         header,
-        description,
         header_icon,
+        description,
         content,
+        style,
     } = card;
+
+    let (min_height, padding, border_thickness, corner_radius) = match style {
+        SettingsCardStyle::Default => (
+            68.0,
+            Thickness::uniform(16.0),
+            Thickness::uniform(1.0),
+            CornerRadius::uniform(4.0),
+        ),
+        SettingsCardStyle::ExpanderItem => (
+            52.0,
+            Thickness::new(58.0, 8.0, 44.0, 8.0),
+            Thickness::new(0.0, 1.0, 0.0, 0.0),
+            CornerRadius::uniform(0.0),
+        ),
+    };
 
     // Keep the first grid column available for cards without an icon.
     let mut icon = Border::new().width(0.0).height(1.0);
@@ -96,6 +126,7 @@ fn render_card(card: SettingsCard) -> View {
 
     let row: View = Grid::new()
         .columns([GridLength::Auto, GridLength::STAR, GridLength::Auto])
+        .horizontal_alignment(HorizontalAlignment::Stretch)
         .vertical_alignment(VerticalAlignment::Center)
         .children((
             Border::new().grid_column(0).content(icon),
@@ -106,14 +137,14 @@ fn render_card(card: SettingsCard) -> View {
 
     Border::new()
         .min_width(148.0)
-        .min_height(68.0)
+        .min_height(min_height)
         .horizontal_alignment(HorizontalAlignment::Stretch)
         .vertical_alignment(VerticalAlignment::Top)
-        .padding(16.0)
+        .padding(padding)
         .background(ThemeBrush::CardBackground)
         .border_brush(ThemeBrush::CardStroke)
-        .border_thickness(1.0)
-        .corner_radius(4.0)
+        .border_thickness(border_thickness)
+        .corner_radius(corner_radius)
         .content(row)
         .into()
 }
