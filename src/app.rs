@@ -33,8 +33,14 @@ const APP_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
 pub(crate) struct AppState {
     app: AppContext,
     icon: RefCell<Option<NotifyIcon>>,
+    app_icon: RefCell<Option<AppIcon>>,
     window: RefCell<OpenWindow>,
     activation_listener: RefCell<Option<window::ActivationListener>>,
+}
+
+struct AppIcon {
+    path: PathBuf,
+    path_string: &'static str,
 }
 
 enum OpenWindow {
@@ -57,6 +63,7 @@ impl AppState {
         Rc::new(Self {
             app,
             icon: RefCell::new(None),
+            app_icon: RefCell::new(None),
             window: RefCell::new(OpenWindow::Closed),
             activation_listener: RefCell::new(None),
         })
@@ -77,7 +84,7 @@ impl AppState {
 
     pub(crate) fn add_icon(self: &Rc<Self>) -> windows_notifyicon::Result<()> {
         let events = Rc::downgrade(self);
-        let path = tray_icon_path()?;
+        let path = app_icon_path("tray")?;
         let result = NotifyIcon::new(path.clone())
             .tooltip(TRAY_TOOLTIP)
             .on_event(move |event| {
@@ -103,6 +110,25 @@ impl AppState {
         let _ = std::fs::remove_file(path);
         *self.icon.borrow_mut() = Some(result?);
         Ok(())
+    }
+
+    fn ensure_app_icon(&self) -> windows_notifyicon::Result<()> {
+        if self.app_icon.borrow().is_none() {
+            *self.app_icon.borrow_mut() = Some(AppIcon::new()?);
+        }
+        Ok(())
+    }
+
+    fn app_icon_path(&self) -> &'static str {
+        self.app_icon
+            .borrow()
+            .as_ref()
+            .expect("application icon should be prepared")
+            .path_string
+    }
+
+    fn release_app_icon(&self) {
+        self.app_icon.borrow_mut().take();
     }
 
     fn show_menu(self: &Rc<Self>, position: windows_notifyicon::Point) {
@@ -133,6 +159,9 @@ impl AppState {
     }
 
     pub(crate) fn open_window(self: &Rc<Self>) -> windows::core::Result<()> {
+        if matches!(&*self.window.borrow(), OpenWindow::Closed) {
+            self.ensure_app_icon()?;
+        }
         let activate = {
             let mut window = self.window.borrow_mut();
             match &*window {
@@ -154,6 +183,7 @@ impl AppState {
             .open_component_window::<KumoApp>(KumoAppInput(Rc::clone(self)))
         {
             *self.window.borrow_mut() = OpenWindow::Closed;
+            self.release_app_icon();
             return Err(error);
         }
         Ok(())
@@ -166,13 +196,30 @@ impl AppState {
     }
 }
 
-fn tray_icon_path() -> windows_notifyicon::Result<PathBuf> {
-    // windows-notifyicon accepts a path, while the application icon is embedded in the binary.
-    let path = std::env::temp_dir().join(format!("KumoRust-tray-{}.ico", std::process::id()));
+impl AppIcon {
+    fn new() -> windows_notifyicon::Result<Self> {
+        let path = app_icon_path("window")?;
+        // WindowVisuals stores the path as a static string; keep this small string alive for the
+        // duration of the process while AppIcon owns the file itself.
+        let path_string = Box::leak(path.to_string_lossy().into_owned().into_boxed_str());
+        Ok(Self { path, path_string })
+    }
+}
+
+impl Drop for AppIcon {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn app_icon_path(kind: &str) -> windows_notifyicon::Result<PathBuf> {
+    // Both the window and notification icon APIs accept a path, while the application icon is
+    // embedded in the binary.
+    let path = std::env::temp_dir().join(format!("KumoRust-{kind}-{}.ico", std::process::id()));
     std::fs::write(&path, APP_ICON_BYTES).map_err(|error| {
         Error::new(
             HRESULT(0x8000_4005_u32 as i32),
-            format!("could not prepare notification icon: {error}"),
+            format!("could not prepare application icon: {error}"),
         )
     })?;
     Ok(path)
@@ -232,6 +279,8 @@ pub enum AppMessage {
     Activate,
     /// Completes the native activation fallback queued for an external request.
     ActivationCompleted,
+    /// Releases the temporary icon after the initial window has been mounted.
+    WindowMounted,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -289,6 +338,7 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
         AppMessage::Activate => AppEffect::None,
         AppMessage::ActivationCompleted => AppEffect::None,
+        AppMessage::WindowMounted => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -346,6 +396,7 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
 pub struct KumoApp {
     model: AppModel,
     state: Rc<AppState>,
+    app_icon_path: &'static str,
 }
 
 impl Component for KumoApp {
@@ -356,15 +407,22 @@ impl Component for KumoApp {
         // Tray and duplicate-instance requests enter through the component's own queue.
         *input.0.window.borrow_mut() =
             OpenWindow::Open(context.sender().callback(|()| AppMessage::Activate));
+        let app_icon_path = input.0.app_icon_path();
+        let _ = context.sender().send(AppMessage::WindowMounted);
         Self {
             model: AppModel::new(),
             state: Rc::clone(&input.0),
+            app_icon_path,
         }
     }
 
     fn update(&mut self, message: AppMessage, context: &ComponentContext<Self>) {
         let activate = matches!(&message, &AppMessage::Activate);
+        let mounted = matches!(&message, &AppMessage::WindowMounted);
         let effect = update(&mut self.model, message);
+        if mounted {
+            self.state.release_app_icon();
+        }
         if activate {
             let reactor_accepted = context.activate_window();
             let foreground_accepted = context.run_window(|window_handle| {
@@ -380,12 +438,13 @@ impl Component for KumoApp {
     }
 
     fn view(&self, _input: &KumoAppInput, context: &mut ViewContext<Self>) -> View {
-        view(&self.model, context)
+        view(&self.model, self.app_icon_path, context)
     }
 }
 
 impl Drop for KumoApp {
     fn drop(&mut self) {
+        self.state.release_app_icon();
         *self.state.window.borrow_mut() = OpenWindow::Closed;
         if self.state.icon.borrow().is_none() {
             self.state.exit();
@@ -395,12 +454,16 @@ impl Drop for KumoApp {
 
 /// Pure view: renders the current route through the matching feature view and
 /// wires navigation to root messages.
-pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
+pub fn view(
+    model: &AppModel,
+    app_icon_path: &'static str,
+    context: &mut ViewContext<KumoApp>,
+) -> View {
     context.window_title(window::MAIN_WINDOW_TITLE);
     context.window_visuals(
         WindowVisuals::new()
             .backdrop(WindowBackdrop::Mica)
-            .icon(concat!(env!("CARGO_MANIFEST_DIR"), "\\assets\\app.ico"))
+            .icon(app_icon_path)
             .constraints(WindowConstraints {
                 min_width: Some(800.0),
                 min_height: Some(600.0),
