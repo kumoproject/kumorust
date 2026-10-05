@@ -59,6 +59,13 @@ runtime is missing:
 cargo run --bin kumorust
 ```
 
+Pass `--silent` to start with only the notification icon and open the main
+window later from the tray menu:
+
+```powershell
+cargo run --bin kumorust -- --silent
+```
+
 Build both binaries for a Portable deployment and start the main program:
 
 ```powershell
