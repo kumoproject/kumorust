@@ -41,7 +41,7 @@ fn main() -> windows::core::Result<()> {
     }
 
     updater::ensure_runtime();
-    App::run_with(|app| {
+    App::run_with(move |app| {
         let state = AppState::new(app.clone());
         let tray_available = match state.add_icon() {
             Ok(()) => true,
