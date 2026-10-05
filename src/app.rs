@@ -23,7 +23,7 @@ use crate::platform::window;
 use crate::services::{scanner, updater};
 
 const TRAY_TOOLTIP: &str = "KumoRust";
-const TRAY_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
+const APP_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
 
 /// Owns the application-lifetime objects that outlive the main component.
 ///
@@ -168,7 +168,7 @@ impl AppState {
 fn tray_icon_path() -> windows_notifyicon::Result<PathBuf> {
     // windows-notifyicon accepts a path, while the application icon is embedded in the binary.
     let path = std::env::temp_dir().join(format!("KumoRust-tray-{}.ico", std::process::id()));
-    std::fs::write(&path, TRAY_ICON_BYTES).map_err(|error| {
+    std::fs::write(&path, APP_ICON_BYTES).map_err(|error| {
         Error::new(
             HRESULT(0x8000_4005_u32 as i32),
             format!("could not prepare notification icon: {error}"),
@@ -448,12 +448,13 @@ pub fn view(model: &AppModel, context: &mut ViewContext<KumoApp>) -> View {
         .preferred_height(WindowTitleBarHeight::Standard)
         .height(48.0)
         .title("KumoRust")
+        .icon(Icon::image_data(EncodedImage::from_static(APP_ICON_BYTES)))
         .is_pane_toggle_button_visible(true)
         .on_pane_toggle_requested(context.message(AppMessage::PaneOpenChanged(!model.pane_open)));
 
-    StackPanel::new()
-        .orientation(Orientation::Vertical)
-        .children((title_bar, navigation))
+    Grid::new()
+        .rows([GridLength::Auto, GridLength::STAR])
+        .children((title_bar.grid_row(0), navigation.grid_row(1)))
         .into()
 }
 
