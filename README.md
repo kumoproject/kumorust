@@ -11,6 +11,18 @@ not scan them until the user presses Refresh. Adding or removing a folder still
 saves the settings and refreshes the library. Icons are cached under
 `%LOCALAPPDATA%\\KumoRust\\icons` and invalidated when the file changes.
 
+## Add a game
+
+The Library page has an **Add game** entry that opens the Windows file picker
+for one `.exe`. KumoRust hashes that file with SHA-256 and sends only the
+fingerprint to kumo-server. A known fingerprint is filled immediately; an
+unknown one opens a metadata dialog with an RJ search action and a manual save
+path. Successful entries are cached locally so a later library scan keeps the
+metadata while the server remains the canonical lookup store.
+
+The client uses `http://127.0.0.1:3100` by default. Set `KUMO_SERVER_URL` in
+the process environment when the server is hosted elsewhere.
+
 For the complete feature and behavior inventory, including startup side
 effects that are not visible in the main pages, see
 [`docs/kumorust-feature-map.md`](docs/kumorust-feature-map.md).

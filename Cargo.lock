@@ -742,11 +742,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-contracts"
+version = "0.1.0"
+source = "git+https://github.com/kumoproject/kumo-contracts?rev=29b7b50#29b7b5052783d1f7efaa9e3171b2c416b29bbf14"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "kumorust"
 version = "0.1.0"
 dependencies = [
  "icoextract_rs",
  "image",
+ "kumo-contracts",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -1153,6 +1163,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",

@@ -3,7 +3,9 @@ use windows_reactor::*;
 use crate::app::{AppMessage, KumoApp, Route};
 use crate::core::i18n::{fmt1, fmt2, fmt3, tr};
 use crate::features::library::components::game_card;
-use crate::features::library::{LibraryMessage, LibraryModel, ScanStatus};
+use crate::features::library::{
+    AddGameDraft, AddGameStatus, LibraryMessage, LibraryModel, ScanStatus,
+};
 use crate::features::settings::SettingsMessage;
 use crate::ui::buttons::icon_content;
 use crate::ui::format::format_epoch_age;
@@ -27,6 +29,7 @@ pub fn view(
         .rows([GridLength::Auto, GridLength::Auto])
         .columns([
             GridLength::STAR,
+            GridLength::Auto,
             GridLength::Auto,
             GridLength::Auto,
             GridLength::Auto,
@@ -57,6 +60,10 @@ pub fn view(
                 .grid_column(3)
                 .grid_row_span(2)
                 .content(add_folder_button(cx)),
+            Border::new()
+                .grid_column(4)
+                .grid_row_span(2)
+                .content(add_game_button(cx)),
         ));
 
     let body: View = if model.games.is_empty() {
@@ -78,6 +85,12 @@ pub fn view(
         page_children.push(KeyedView::new("notice", info_bar));
     }
     page_children.push(KeyedView::new("body", body));
+    if let Some(draft) = &model.add_game {
+        page_children.push(KeyedView::new(
+            "add-game-dialog",
+            add_game_dialog(draft, cx),
+        ));
+    }
 
     ScrollViewer::new()
         .margin(Thickness::uniform(24.0))
@@ -204,6 +217,121 @@ fn add_folder_button(cx: &ViewContext<KumoApp>) -> View {
         .on_click(cx.message(AppMessage::Settings(SettingsMessage::AddFolder)))
         .content(icon_content(Symbol::Add, tr("settings.add_folder")))
         .into()
+}
+
+/// Opens the single-executable add flow without requiring a library folder.
+fn add_game_button(cx: &ViewContext<KumoApp>) -> View {
+    Button::new()
+        .style(ButtonStyle::Accent)
+        .on_click(cx.message(AppMessage::Library(LibraryMessage::AddGame)))
+        .content(icon_content(Symbol::Add, tr("library.add_game.button")))
+        .into()
+}
+
+fn add_game_dialog(draft: &AddGameDraft, cx: &ViewContext<KumoApp>) -> View {
+    let status = match &draft.status {
+        AddGameStatus::LookingUp => tr("library.add_game.lookup").to_owned(),
+        AddGameStatus::Editing => String::new(),
+        AddGameStatus::Searching => tr("library.add_game.searching").to_owned(),
+        AddGameStatus::Saving => tr("library.add_game.saving").to_owned(),
+        AddGameStatus::Error(error) => error.clone(),
+    };
+    let can_save = !draft.title.trim().is_empty()
+        && !matches!(
+            &draft.status,
+            AddGameStatus::LookingUp | AddGameStatus::Searching | AddGameStatus::Saving
+        );
+
+    let rj_row = Grid::new()
+        .columns([GridLength::STAR, GridLength::Auto])
+        .column_spacing(8.0)
+        .children((
+            TextBox::new(&draft.rj_code)
+                .placeholder_text(tr("library.add_game.rj_placeholder"))
+                .header(tr("library.add_game.rj_code"))
+                .on_text_changed(cx.callback(|value: std::rc::Rc<str>| {
+                    AppMessage::Library(LibraryMessage::RjCodeChanged(value.to_string()))
+                }))
+                .grid_column(0),
+            Button::new()
+                .style(ButtonStyle::Subtle)
+                .on_click(cx.message(AppMessage::Library(LibraryMessage::SearchDlsite)))
+                .content(icon_content(Symbol::Find, tr("library.add_game.search")))
+                .grid_column(1)
+                .vertical_alignment(VerticalAlignment::Bottom),
+        ));
+
+    let mut children: Vec<View> = vec![
+        TextBlock::new()
+            .text(draft.path.clone())
+            .font_size(12.0)
+            .foreground(TEXT_SECONDARY)
+            .max_lines(2)
+            .text_trimming(TextTrimming::CharacterEllipsis)
+            .into(),
+        TextBox::new(&draft.title)
+            .header(tr("library.add_game.title_label"))
+            .placeholder_text(tr("library.add_game.title_placeholder"))
+            .on_text_changed(cx.callback(|value: std::rc::Rc<str>| {
+                AppMessage::Library(LibraryMessage::TitleChanged(value.to_string()))
+            }))
+            .into(),
+        rj_row.into(),
+        TextBox::new(&draft.maker)
+            .header(tr("library.add_game.maker"))
+            .on_text_changed(cx.callback(|value: std::rc::Rc<str>| {
+                AppMessage::Library(LibraryMessage::MakerChanged(value.to_string()))
+            }))
+            .into(),
+        TextBox::new(&draft.tags)
+            .header(tr("library.add_game.tags"))
+            .placeholder_text(tr("library.add_game.tags_placeholder"))
+            .on_text_changed(cx.callback(|value: std::rc::Rc<str>| {
+                AppMessage::Library(LibraryMessage::TagsChanged(value.to_string()))
+            }))
+            .into(),
+        TextBox::new(&draft.description)
+            .header(tr("library.add_game.description"))
+            .accepts_return(true)
+            .text_wrapping(TextWrapping::Wrap)
+            .height(92.0)
+            .on_text_changed(cx.callback(|value: std::rc::Rc<str>| {
+                AppMessage::Library(LibraryMessage::DescriptionChanged(value.to_string()))
+            }))
+            .into(),
+    ];
+    if !status.is_empty() {
+        children.push(
+            TextBlock::new()
+                .text(status)
+                .font_size(13.0)
+                .foreground(TEXT_SECONDARY)
+                .into(),
+        );
+    }
+
+    let dialog = ContentDialog::new()
+        .title(tr("library.add_game.dialog_title"))
+        .primary_button_text(tr("library.add_game.save"))
+        .close_button_text(tr("common.cancel"))
+        .is_primary_button_enabled(can_save)
+        .is_open(!matches!(
+            &draft.status,
+            AddGameStatus::LookingUp | AddGameStatus::Saving
+        ))
+        .on_closed(cx.callback(|result| AppMessage::Library(LibraryMessage::DialogClosed(result))))
+        .content(
+            StackPanel::new()
+                .spacing(10.0)
+                .max_width(520.0)
+                .keyed_children(
+                    children
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, child)| KeyedView::new(index, child)),
+                ),
+        );
+    TextBlock::new().text("").content_dialog(dialog)
 }
 
 /// Human-readable scan status line for the library header.

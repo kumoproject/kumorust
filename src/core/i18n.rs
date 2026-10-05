@@ -148,6 +148,63 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("library.launch", "启动", "Launch"),
     ("library.game_type", "Windows 游戏", "Windows game"),
     ("library.unknown_game", "未知游戏", "Unknown game"),
+    ("library.add_game.button", "添加游戏", "Add game"),
+    (
+        "library.add_game.picker_title",
+        "选择游戏 exe",
+        "Choose a game executable",
+    ),
+    (
+        "library.add_game.exe_filter",
+        "Windows 可执行文件",
+        "Windows executable",
+    ),
+    (
+        "library.add_game.dialog_title",
+        "补充游戏信息",
+        "Add game information",
+    ),
+    (
+        "library.add_game.lookup",
+        "正在查询游戏信息…",
+        "Looking up game information…",
+    ),
+    (
+        "library.add_game.searching",
+        "正在查询 DLsite…",
+        "Searching DLsite…",
+    ),
+    (
+        "library.add_game.saving",
+        "正在保存游戏信息…",
+        "Saving game information…",
+    ),
+    ("library.add_game.title_label", "游戏标题", "Game title"),
+    (
+        "library.add_game.title_placeholder",
+        "输入游戏标题",
+        "Enter a game title",
+    ),
+    (
+        "library.add_game.rj_code",
+        "DLsite RJ 号",
+        "DLsite RJ number",
+    ),
+    (
+        "library.add_game.rj_placeholder",
+        "例如 RJ123456",
+        "For example RJ123456",
+    ),
+    ("library.add_game.search", "搜索", "Search"),
+    ("library.add_game.save", "保存", "Save"),
+    ("library.add_game.maker", "制作方", "Maker"),
+    ("library.add_game.tags", "标签", "Tags"),
+    (
+        "library.add_game.tags_placeholder",
+        "多个标签用逗号分隔",
+        "Separate tags with commas",
+    ),
+    ("library.add_game.description", "简介", "Description"),
     // Settings page
     ("settings.folders", "游戏库位置", "Library location"),
     (
@@ -200,6 +257,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("settings.update.check", "检查并更新", "Check for updates"),
     // Common / errors
     ("common.notice", "提示", "Notice"),
+    ("common.cancel", "取消", "Cancel"),
     (
         "folder_picker.title",
         "选择游戏库文件夹",
