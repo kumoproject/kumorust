@@ -7,7 +7,6 @@ use crate::features::settings::message::SettingsMessage;
 use crate::features::settings::model::SettingsModel;
 use crate::ui::info_bar::info_bar;
 use crate::ui::layout::keyed_vstack;
-use crate::ui::settings_card::SettingsCard;
 use crate::ui::settings_expander::SettingsExpander;
 use crate::ui::tokens::{TEXT_SECONDARY, body, caption, subtitle, title};
 
@@ -16,12 +15,6 @@ use crate::ui::tokens::{TEXT_SECONDARY, body, caption, subtitle, title};
 /// Every interaction is emitted as a `SettingsMessage` wrapped in the root
 /// `AppMessage`; the page never mutates state itself.
 pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> View {
-    let library_card: View = SettingsCard::new(tr("settings.folders"))
-        .description(tr("settings.folders.description"))
-        .header_icon(SymbolIcon::new().symbol(Symbol::Library))
-        .content(add_folder_button(cx, true))
-        .into();
-
     let folder_items = model
         .folders
         .iter()
@@ -43,14 +36,15 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
     };
 
     let folders_expander =
-        SettingsExpander::new(tr("settings.indexed"))
-            .description(tr("settings.indexed.description"))
+        SettingsExpander::new(tr("settings.folders"))
+            .description(tr("settings.folders.description"))
             .header_icon(SymbolIcon::new().symbol(Symbol::Library))
             .items(folder_items)
             .is_expanded(model.folders_expanded)
             .on_expanding(cx.callback(|expanded| {
                 AppMessage::Settings(SettingsMessage::FoldersExpanded(expanded))
-            }));
+            }))
+            .header_content(add_folder_button(cx, true));
     let folders_content: View = folders_expander.into();
 
     let check_update = cx.message(AppMessage::Settings(SettingsMessage::CheckUpdate));
@@ -67,7 +61,6 @@ pub fn view(model: &SettingsModel, notice: &str, cx: &ViewContext<KumoApp>) -> V
                 .font_size(14.0)
                 .foreground(TEXT_SECONDARY),
         ),
-        KeyedView::new("library", library_card),
         KeyedView::new("folders", folders_content),
         KeyedView::new("updates-heading", subtitle(tr("settings.updates"))),
         KeyedView::new("updates", update_card),

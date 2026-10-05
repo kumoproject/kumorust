@@ -145,7 +145,7 @@ fn render_expander(expander: SettingsExpander) -> View {
     let header = Border::new()
         .min_height(68.0)
         .horizontal_alignment(HorizontalAlignment::Stretch)
-        .padding(Thickness::new(16.0, 16.0, 4.0, 16.0))
+        .padding(Thickness::xy(0.0, 16.0))
         .content(
             Grid::new()
                 .columns([GridLength::Auto, GridLength::STAR, GridLength::Auto])

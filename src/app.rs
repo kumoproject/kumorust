@@ -111,7 +111,6 @@ impl AppState {
         let menu = Menu::new(
             [
                 MenuItem::item(open.clone(), tr("tray.open")),
-                MenuItem::separator("separator"),
                 MenuItem::item(exit.clone(), tr("tray.exit")),
             ],
             move |key| {
