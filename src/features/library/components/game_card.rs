@@ -40,7 +40,6 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
                 TextBlock::new()
                     .text(game.name.clone())
                     .font_size(18.0)
-                    .font_weight(FontWeight::SEMI_BOLD)
                     .max_lines(1)
                     .text_trimming(TextTrimming::CharacterEllipsis),
                 TextBlock::new()

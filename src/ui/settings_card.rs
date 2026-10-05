@@ -89,13 +89,7 @@ fn render_card(card: SettingsCard) -> View {
     }
     let icon: View = icon.into();
 
-    let mut detail_children: Vec<View> = vec![
-        TextBlock::new()
-            .text(header)
-            .font_size(14.0)
-            .font_weight(FontWeight::SEMI_BOLD)
-            .into(),
-    ];
+    let mut detail_children: Vec<View> = vec![TextBlock::new().text(header).font_size(14.0).into()];
     if let Some(text) = description {
         detail_children.push(
             TextBlock::new()
@@ -110,6 +104,7 @@ fn render_card(card: SettingsCard) -> View {
     // Add the optional description only when it exists.
     let details: View = StackPanel::new()
         .spacing(4.0)
+        .margin(Thickness::new(0.0, 0.0, 24.0, 0.0))
         .vertical_alignment(VerticalAlignment::Center)
         .children(detail_children)
         .into();
