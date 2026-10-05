@@ -1,5 +1,7 @@
 # KumoRust
 
+[![dependency status](https://deps.rs/repo/github/kumoproject/kumorust/status.svg)](https://deps.rs/repo/github/kumoproject/kumorust)
+
 A Windows game library launcher built with the `windows-reactor` crate from
 [`microsoft/windows-rs`](https://github.com/microsoft/windows-rs/tree/master/crates/libs/reactor).
 
