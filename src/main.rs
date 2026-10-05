@@ -22,13 +22,20 @@ fn main() -> windows::core::Result<()> {
     let instance = SingleInstance::new(MAIN_INSTANCE_NAME)
         .map_err(|error| Error::new(HRESULT(0x8000_4005_u32 as i32), error.to_string()))?;
     if !instance.is_single() {
-        window::activate_existing_main_window();
+        if !window::signal_existing_main_instance() {
+            // Keep the title-based path as a fallback for an instance that has not
+            // installed its activation listener yet.
+            window::activate_existing_main_window();
+        }
         return Ok(());
     }
 
     updater::ensure_runtime();
     App::run_with(|app| {
         let state = AppState::new(app.clone());
+        if let Err(error) = state.start_activation_listener() {
+            eprintln!("could not start the main-instance activation listener: {error}");
+        }
         if let Err(error) = state.add_icon() {
             eprintln!("could not add notification icon: {error}");
         }
