@@ -1,11 +1,14 @@
 use std::thread::{self, JoinHandle};
 
 use windows::Win32::handleapi::CloseHandle;
+use windows::Win32::processthreadsapi::GetCurrentThreadId;
 use windows::Win32::synchapi::{CreateEventW, OpenEventW, SetEvent, WaitForMultipleObjects};
 use windows::Win32::windef::HWND;
 use windows::Win32::winnt::{EVENT_MODIFY_STATE, HANDLE};
 use windows::Win32::winuser::{
-    BringWindowToTop, FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    AttachThreadInput, BringWindowToTop, FindWindowW, GetForegroundWindow,
+    GetWindowThreadProcessId, SW_RESTORE, SetActiveWindow, SetFocus, SetForegroundWindow,
+    ShowWindow,
 };
 use windows::core::{Error, PCWSTR};
 use windows_reactor::AppCallback;
@@ -114,23 +117,65 @@ pub(crate) fn signal_existing_main_instance() -> bool {
     signaled
 }
 
-/// Called when a second instance is launched and told to hand over.
-pub(crate) fn activate_existing_main_window() {
+/// Requests activation from a duplicate process.
+///
+/// The named event keeps the request on the primary process's normal component path.
+/// The duplicate process also tries a synchronous activation because it often owns
+/// the launch input and can foreground an already-created window immediately.
+pub(crate) fn request_existing_main_activation() -> bool {
+    let signaled = signal_existing_main_instance();
+    let activated = activate_existing_main_window();
+    signaled || activated
+}
+
+/// Synchronously restores and activates the known main window, when it exists.
+pub(crate) fn activate_existing_main_window() -> bool {
     if let Some(hwnd) = find_window(MAIN_WINDOW_TITLE) {
-        activate_window_handle(hwnd.cast());
+        activate_window_handle(hwnd.cast())
+    } else {
+        false
     }
 }
 
 /// Restores and places a known window in the foreground.
-pub(crate) fn activate_window_handle(raw: *mut core::ffi::c_void) {
+pub(crate) fn activate_window_handle(raw: *mut core::ffi::c_void) -> bool {
     let hwnd = raw as HWND;
     if hwnd.is_null() {
-        return;
+        return false;
     }
     unsafe {
+        // A tray callback or a duplicate process can arrive while another
+        // process owns the foreground lock. Temporarily sharing the relevant
+        // input queues gives SetForegroundWindow the same user activation context.
+        let foreground = GetForegroundWindow();
+        let current_thread = GetCurrentThreadId();
+        let foreground_thread = if foreground.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(foreground, None)
+        };
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+        let foreground_attached = foreground_thread != 0
+            && foreground_thread != current_thread
+            && AttachThreadInput(foreground_thread, current_thread, true).as_bool();
+        let target_attached = target_thread != 0
+            && target_thread != current_thread
+            && AttachThreadInput(current_thread, target_thread, true).as_bool();
+
         let _ = ShowWindow(hwnd, SW_RESTORE);
         let _ = BringWindowToTop(hwnd);
-        let _ = SetForegroundWindow(hwnd);
+        let foregrounded = SetForegroundWindow(hwnd).as_bool();
+        let _ = SetActiveWindow(hwnd);
+        let _ = SetFocus(Some(hwnd));
+
+        if target_attached {
+            let _ = AttachThreadInput(current_thread, target_thread, false);
+        }
+        if foreground_attached {
+            let _ = AttachThreadInput(foreground_thread, current_thread, false);
+        }
+
+        foregrounded || GetForegroundWindow() == hwnd
     }
 }
 

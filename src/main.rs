@@ -34,10 +34,8 @@ fn main() -> windows::core::Result<()> {
     let instance = SingleInstance::new(MAIN_INSTANCE_NAME)
         .map_err(|error| Error::new(HRESULT(0x8000_4005_u32 as i32), error.to_string()))?;
     if !instance.is_single() {
-        if !options.silent && !window::signal_existing_main_instance() {
-            // Keep the title-based path as a fallback for an instance that has not
-            // installed its activation listener yet.
-            window::activate_existing_main_window();
+        if !options.silent && !window::request_existing_main_activation() {
+            eprintln!("could not notify the running KumoRust instance");
         }
         return Ok(());
     }

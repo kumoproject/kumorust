@@ -86,6 +86,7 @@ impl AppState {
                 };
                 match event {
                     NotifyIconEvent::Activate { .. } => {
+                        let _ = window::activate_existing_main_window();
                         if let Err(error) = state.open_window() {
                             eprintln!("could not open KumoRust window: {error}");
                         }
@@ -227,10 +228,10 @@ impl AppModel {
 /// forwarded to the matching reducer.
 #[derive(Clone, Debug)]
 pub enum AppMessage {
-    /// Activates the existing main window after a tray interaction.
+    /// Activates the existing main window after an external open request.
     Activate,
-    /// Completes the native foreground activation queued for a tray request.
-    WindowForegrounded,
+    /// Completes the native activation fallback queued for an external request.
+    ActivationCompleted,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -287,7 +288,7 @@ pub enum AppEffect {
 pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
         AppMessage::Activate => AppEffect::None,
-        AppMessage::WindowForegrounded => AppEffect::None,
+        AppMessage::ActivationCompleted => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -352,6 +353,7 @@ impl Component for KumoApp {
     type Input = KumoAppInput;
 
     fn create(input: &KumoAppInput, context: &ComponentContext<Self>) -> Self {
+        // Tray and duplicate-instance requests enter through the component's own queue.
         *input.0.window.borrow_mut() =
             OpenWindow::Open(context.sender().callback(|()| AppMessage::Activate));
         Self {
@@ -367,7 +369,7 @@ impl Component for KumoApp {
             let reactor_accepted = context.activate_window();
             let foreground_accepted = context.run_window(|window_handle| {
                 window::activate_window_handle(window_handle.as_raw());
-                AppMessage::WindowForegrounded
+                AppMessage::ActivationCompleted
             });
             if !reactor_accepted && !foreground_accepted {
                 eprintln!("could not activate KumoRust window");

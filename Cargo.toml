@@ -26,6 +26,7 @@ windows = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e170
     "appmodel",
     "commctrl",
     "handleapi",
+    "processthreadsapi",
     "shellapi",
     "synchapi",
     "winerror",
