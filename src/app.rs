@@ -34,6 +34,7 @@ pub(crate) struct AppState {
     app: AppContext,
     icon: RefCell<Option<NotifyIcon>>,
     window: RefCell<OpenWindow>,
+    activation_listener: RefCell<Option<window::ActivationListener>>,
 }
 
 enum OpenWindow {
@@ -57,7 +58,21 @@ impl AppState {
             app,
             icon: RefCell::new(None),
             window: RefCell::new(OpenWindow::Closed),
+            activation_listener: RefCell::new(None),
         })
+    }
+
+    pub(crate) fn start_activation_listener(self: &Rc<Self>) -> windows::core::Result<()> {
+        let events = Rc::downgrade(self);
+        let callback = self.app.callback(move || {
+            let Some(state) = events.upgrade() else {
+                return Ok(());
+            };
+            state.open_window()
+        });
+        let listener = window::ActivationListener::start(callback)?;
+        *self.activation_listener.borrow_mut() = Some(listener);
+        Ok(())
     }
 
     pub(crate) fn add_icon(self: &Rc<Self>) -> windows_notifyicon::Result<()> {
@@ -215,6 +230,8 @@ impl AppModel {
 pub enum AppMessage {
     /// Activates the existing main window after a tray interaction.
     Activate,
+    /// Completes the native foreground activation queued for a tray request.
+    WindowForegrounded,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -271,6 +288,7 @@ pub enum AppEffect {
 pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
         AppMessage::Activate => AppEffect::None,
+        AppMessage::WindowForegrounded => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -347,7 +365,12 @@ impl Component for KumoApp {
         let activate = matches!(&message, &AppMessage::Activate);
         let effect = update(&mut self.model, message);
         if activate {
-            if !context.activate_window() {
+            let reactor_accepted = context.activate_window();
+            let foreground_accepted = context.run_window(|window_handle| {
+                window::activate_window_handle(window_handle.as_raw());
+                AppMessage::WindowForegrounded
+            });
+            if !reactor_accepted && !foreground_accepted {
                 eprintln!("could not activate KumoRust window");
             }
         } else {
