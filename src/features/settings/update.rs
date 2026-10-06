@@ -1,7 +1,6 @@
 use crate::domain::folder;
-use crate::domain::update::UpdateStatus;
 use crate::features::settings::message::SettingsMessage;
-use crate::features::settings::model::SettingsModel;
+use crate::features::settings::model::{SettingsModel, UpdateStatus};
 
 /// Side effects requested by the settings reducer; executed by the root app.
 #[derive(Debug)]

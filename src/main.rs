@@ -14,7 +14,7 @@ use windows_reactor::App;
 
 use crate::app::AppState;
 use crate::platform::window;
-use crate::services::updater;
+use crate::services::setup;
 
 const MAIN_INSTANCE_NAME: &str = "KumoRust.main";
 
@@ -40,7 +40,7 @@ fn main() -> windows::core::Result<()> {
         return Ok(());
     }
 
-    if let Err(error) = updater::ensure_runtime() {
+    if let Err(error) = setup::ensure_runtime() {
         eprintln!("Windows App SDK runtime 安装失败：{error}");
     }
     App::run_with(move |app| {

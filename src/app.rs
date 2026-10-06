@@ -17,11 +17,10 @@ use windows_reactor::*;
 use crate::core::config;
 use crate::core::i18n::{fmt1, fmt2, tr};
 use crate::domain::folder;
-use crate::domain::update::UpdateStatus;
 use crate::features::library::{self, LibraryMessage, LibraryModel};
-use crate::features::settings::{self, SettingsMessage, SettingsModel};
+use crate::features::settings::{self, SettingsMessage, SettingsModel, UpdateStatus};
 use crate::platform::window;
-use crate::services::{scanner, updater};
+use crate::services::{application_update, scanner};
 
 const TRAY_TOOLTIP: &str = "KumoRust";
 const APP_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
@@ -291,7 +290,7 @@ pub enum AppMessage {
     /// Shared transient notice shown in the current page's info bar.
     Notice(String),
     /// Completes the app-owned update check and package download.
-    UpdateFinished(Result<updater::UpdateStart, String>),
+    UpdateFinished(Result<application_update::ApplicationUpdateOutcome, String>),
     /// A library interaction, forwarded to the library reducer.
     Library(LibraryMessage),
     /// A settings interaction, forwarded to the settings reducer.
@@ -363,8 +362,8 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             AppEffect::None
         }
         AppMessage::UpdateFinished(result) => match result {
-            Ok(updater::UpdateStart::Started) => AppEffect::ExitAfterUpdate,
-            Ok(updater::UpdateStart::NoUpdate) => {
+            Ok(application_update::ApplicationUpdateOutcome::Started) => AppEffect::ExitAfterUpdate,
+            Ok(application_update::ApplicationUpdateOutcome::NoUpdate) => {
                 model.settings.update_status = UpdateStatus::Idle;
                 AppEffect::None
             }
@@ -590,7 +589,7 @@ where
         AppEffect::StartUpdater => {
             context.spawn_background(move |_token| {
                 AppMessage::UpdateFinished(
-                    updater::start_update().map_err(|error| error.to_string()),
+                    application_update::check_and_start().map_err(|error| error.to_string()),
                 )
             });
         }

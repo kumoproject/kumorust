@@ -251,7 +251,7 @@ flowchart LR
 ```text
 main.rs
   -> 单实例
-  -> services::updater::ensure_runtime
+  -> services::setup::ensure_runtime
   -> windows_reactor::App::run_with (AppState + windows-notifyicon)
 
 app.rs
@@ -271,12 +271,14 @@ features/settings
 
 domain
   -> folder: GameEntry、路径判重、文件夹去重
-  -> update: runtime spec、package identity、版本匹配
+  -> runtime: runtime spec、package identity、版本匹配
 
 services
   -> scanner: 递归文件系统扫描
   -> icon_extractor: Windows 图标转 PNG
-  -> updater: runtime 安装、应用本地包替换和 updater 进程启动
+  -> setup: runtime 检查、下载、校验和启动安装
+  -> application_update: 应用更新检查、下载、校验和本地包交接
+  -> updater_process: 本地 updater.exe 进程桥接
 
 core
   -> config: settings.json 和图标目录

@@ -1,4 +1,10 @@
-use crate::domain::update::UpdateStatus;
+/// Status of the application update check shown in settings.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UpdateStatus {
+    Idle,
+    Starting,
+    Error(String),
+}
 
 /// The settings slice's model.
 #[derive(Clone, Debug, PartialEq)]

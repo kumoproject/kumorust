@@ -13,6 +13,6 @@ mod update;
 mod view;
 
 pub use message::SettingsMessage;
-pub use model::SettingsModel;
+pub use model::{SettingsModel, UpdateStatus};
 pub use update::{SettingsEffect, update};
 pub use view::view;

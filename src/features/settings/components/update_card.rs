@@ -1,7 +1,7 @@
 use windows_reactor::*;
 
 use crate::core::i18n::tr;
-use crate::domain::update::UpdateStatus;
+use crate::features::settings::UpdateStatus;
 use crate::ui::buttons::icon_content;
 use crate::ui::settings_card::SettingsCard;
 

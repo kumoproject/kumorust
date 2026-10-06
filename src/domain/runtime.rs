@@ -1,43 +1,19 @@
-//! Pure update domain: update status and Windows App SDK runtime identity
-//! parsing. The Win32/process side effects live in `services::updater`.
-
-use serde::Serialize;
+//! Pure Windows App SDK runtime identity and version rules.
 
 pub const RUNTIME_VERSION: &str = env!("KUMORUST_WASDK_VERSION");
 pub const RUNTIME_PACKAGE_NAME: &str = "Microsoft.WindowsAppRuntime.2";
 pub const MAIN_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Main.2";
 pub const SINGLETON_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Singleton";
 pub const PACKAGE_PUBLISHER_ID: &str = "8wekyb3d8bbwe";
-pub const RUNTIME_INSTALLER_ARM64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-arm64.exe";
-pub const RUNTIME_INSTALLER_X64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe";
-pub const RUNTIME_INSTALLER_X86_URL: &str =
-    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x86.exe";
-pub const RUNTIME_INSTALLER_ARM64_SHA256: &str =
-    "d5e4d34547eb4e31c64bf1532415b3019c0d92b750e72eb18d3d95bd00feacbb";
-pub const RUNTIME_INSTALLER_X64_SHA256: &str =
-    "931a421e8dc3e6e67724806cb67fecdbb88dfe323f0170842eb4a4b4b149f1e2";
-pub const RUNTIME_INSTALLER_X86_SHA256: &str =
-    "76dbd7c272cee0bf18f0b7228255b353d669cd55dc530209c45646f47acb89d4";
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum UpdateStatus {
-    Idle,
-    Starting,
-    Error(String),
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct RuntimeSpec {
     pub version: String,
     pub architecture: String,
     pub package_identities: Vec<RuntimePackageIdentity>,
-    pub installer_url: String,
-    pub sha256: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct RuntimePackageIdentity {
     pub name: String,
     pub publisher_id: String,
@@ -45,22 +21,10 @@ pub struct RuntimePackageIdentity {
 }
 
 pub fn runtime_spec() -> Option<RuntimeSpec> {
-    let (architecture, installer_url, sha256) = match std::env::consts::ARCH {
-        "x86" => (
-            "x86",
-            RUNTIME_INSTALLER_X86_URL,
-            RUNTIME_INSTALLER_X86_SHA256,
-        ),
-        "x86_64" => (
-            "x64",
-            RUNTIME_INSTALLER_X64_URL,
-            RUNTIME_INSTALLER_X64_SHA256,
-        ),
-        "aarch64" => (
-            "arm64",
-            RUNTIME_INSTALLER_ARM64_URL,
-            RUNTIME_INSTALLER_ARM64_SHA256,
-        ),
+    let architecture = match std::env::consts::ARCH {
+        "x86" => "x86",
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
         _ => return None,
     };
 
@@ -78,8 +42,6 @@ pub fn runtime_spec() -> Option<RuntimeSpec> {
             package(MAIN_PACKAGE_NAME, format!("{RUNTIME_VERSION}.0")),
             package(SINGLETON_PACKAGE_NAME, format!("800{RUNTIME_VERSION}.0")),
         ],
-        installer_url: installer_url.to_string(),
-        sha256: sha256.to_string(),
     })
 }
 
@@ -130,12 +92,6 @@ pub fn package_full_name_version(
         && architecture == expected_architecture
         && found_publisher_id == publisher_id)
         .then_some(version)
-}
-
-pub fn is_missing_package_status(status: i32) -> bool {
-    status == windows::Win32::winerror::APPMODEL_ERROR_NO_PACKAGE
-        || status == windows::Win32::winerror::ERROR_FILE_NOT_FOUND
-        || status == windows::Win32::winerror::ERROR_NOT_FOUND
 }
 
 #[cfg(test)]
