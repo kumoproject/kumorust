@@ -229,6 +229,12 @@ fn dispatch_notification(
     notification: RuntimeNotification,
 ) -> windows::core::Result<()> {
     match notification {
+        // Keep the download progress toast as the first visible runtime
+        // notification. Runtime discovery and installer validation happen
+        // before the download, but do not need their own popups.
+        RuntimeNotification::Phase(phase) if matches!(phase.as_str(), "checking" | "verifying") => {
+            Ok(())
+        }
         RuntimeNotification::Downloading {
             bytes_done,
             bytes_total,
