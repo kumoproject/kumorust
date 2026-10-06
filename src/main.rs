@@ -40,7 +40,9 @@ fn main() -> windows::core::Result<()> {
         return Ok(());
     }
 
-    updater::ensure_runtime();
+    if let Err(error) = updater::ensure_runtime() {
+        eprintln!("Windows App SDK runtime 安装失败：{error}");
+    }
     App::run_with(move |app| {
         let state = AppState::new(app.clone());
         if let Err(error) = state.start_activation_listener() {

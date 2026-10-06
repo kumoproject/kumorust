@@ -747,6 +747,8 @@ version = "0.1.0"
 dependencies = [
  "icoextract_rs",
  "image",
+ "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -763,13 +765,7 @@ dependencies = [
 name = "kumorust-updater"
 version = "0.1.0"
 dependencies = [
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "sha2",
  "single-instance",
- "url",
  "winresource",
  "zip",
 ]

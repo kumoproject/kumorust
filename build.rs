@@ -1,4 +1,4 @@
-const WASDK_VERSION: &str = "2.4.0";
+const WASDK_VERSION: &str = "2.5.1";
 
 fn main() {
     println!("cargo:rustc-env=KUMORUST_WASDK_VERSION={WASDK_VERSION}");

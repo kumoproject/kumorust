@@ -9,17 +9,17 @@ pub const MAIN_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Main.2
 pub const SINGLETON_PACKAGE_NAME: &str = "MicrosoftCorporationII.WinAppRuntime.Singleton";
 pub const PACKAGE_PUBLISHER_ID: &str = "8wekyb3d8bbwe";
 pub const RUNTIME_INSTALLER_ARM64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-arm64.exe";
+    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-arm64.exe";
 pub const RUNTIME_INSTALLER_X64_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe";
+    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe";
 pub const RUNTIME_INSTALLER_X86_URL: &str =
-    "https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x86.exe";
+    "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x86.exe";
 pub const RUNTIME_INSTALLER_ARM64_SHA256: &str =
-    "788665585dcbc2844e99483fda27809a91c2f36235b799b104d6649b68eb61b0";
+    "d5e4d34547eb4e31c64bf1532415b3019c0d92b750e72eb18d3d95bd00feacbb";
 pub const RUNTIME_INSTALLER_X64_SHA256: &str =
-    "851c35b0b0a59ce4c55f9171f601193322fc3413143b0dc3390ea11e14cfa7fc";
+    "931a421e8dc3e6e67724806cb67fecdbb88dfe323f0170842eb4a4b4b149f1e2";
 pub const RUNTIME_INSTALLER_X86_SHA256: &str =
-    "427c490230db95443d74c9b6e86c3272a85e8a5dc86408fb9da4c05050196f8f";
+    "76dbd7c272cee0bf18f0b7228255b353d669cd55dc530209c45646f47acb89d4";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UpdateStatus {

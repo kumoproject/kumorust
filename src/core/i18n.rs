@@ -178,24 +178,20 @@ const STRINGS: &[(&str, &str, &str)] = &[
     ("settings.update.idle", "保持最新版本", "Up to date"),
     (
         "settings.update.idle.description",
-        "由独立更新器检查并安装 KumoRust 与 Windows App SDK",
-        "The standalone updater checks and installs KumoRust and the Windows App SDK",
+        "应用检查更新，独立更新器离线安装本地更新包与 Windows App SDK",
+        "The app checks for updates; the standalone updater installs local packages offline",
     ),
     (
         "settings.update.starting",
-        "正在启动更新器",
-        "Starting updater",
+        "正在检查更新",
+        "Checking for updates",
     ),
     (
         "settings.update.starting.description",
-        "应用即将退出，更新器会完成检查后重新启动 KumoRust",
-        "The app is about to exit; the updater restarts KumoRust after checking",
+        "应用会在更新包准备完成后退出，由独立更新器完成本地替换并重新启动",
+        "The app exits after the package is ready; the standalone updater replaces local files and restarts it",
     ),
-    (
-        "settings.update.error",
-        "更新器启动失败",
-        "Failed to start updater",
-    ),
+    ("settings.update.error", "更新失败", "Update failed"),
     ("settings.update.busy", "启动中", "Starting…"),
     ("settings.update.check", "检查并更新", "Check for updates"),
     // Common / errors
@@ -224,11 +220,6 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "error.launch_failed",
         "无法启动 {}：{}",
         "Failed to launch {}: {}",
-    ),
-    (
-        "error.updater_start_failed",
-        "无法启动更新器：{}",
-        "Failed to start updater: {}",
     ),
     // Relative time
     ("time.just_now", "刚刚", "just now"),

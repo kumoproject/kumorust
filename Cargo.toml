@@ -17,20 +17,32 @@ panic = "abort"
 [dependencies]
 icoextract_rs = "0.1"
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 single-instance = "0.3"
 url = "2"
 windows = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e17085b4b3fd4e88f9f2cb83893b8563", features = [
+    "Foundation",
+    "Data_Xml_Dom",
+    "UI_Notifications",
     "appmodel",
     "commctrl",
+    "combaseapi",
     "handleapi",
+    "objidl",
+    "objbase",
+    "propkey",
+    "propsys",
+    "propidlbase",
     "processthreadsapi",
+    "shobjidl_core",
     "shellapi",
     "synchapi",
     "winerror",
     "winuser",
+    "wtypes",
 ] }
 windows-notifyicon = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e17085b4b3fd4e88f9f2cb83893b8563" }
 windows-pickers = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e17085b4b3fd4e88f9f2cb83893b8563", default-features = false, features = ["reactor"] }
@@ -38,3 +50,9 @@ windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "af92
 
 [build-dependencies]
 winresource = "0.1.31"
+
+[target.'cfg(windows)'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
+
+[target.'cfg(not(windows))'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }

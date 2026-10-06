@@ -17,6 +17,7 @@ use windows_reactor::*;
 use crate::core::config;
 use crate::core::i18n::{fmt1, fmt2, tr};
 use crate::domain::folder;
+use crate::domain::update::UpdateStatus;
 use crate::features::library::{self, LibraryMessage, LibraryModel};
 use crate::features::settings::{self, SettingsMessage, SettingsModel};
 use crate::platform::window;
@@ -289,6 +290,8 @@ pub enum AppMessage {
     PaneOpenChanged(bool),
     /// Shared transient notice shown in the current page's info bar.
     Notice(String),
+    /// Completes the app-owned update check and package download.
+    UpdateFinished(Result<updater::UpdateStart, String>),
     /// A library interaction, forwarded to the library reducer.
     Library(LibraryMessage),
     /// A settings interaction, forwarded to the settings reducer.
@@ -328,8 +331,10 @@ pub enum AppEffect {
         path: String,
         directory: String,
     },
-    /// Launch the standalone updater.
+    /// Check and prepare an application update in the background.
     StartUpdater,
+    /// Exit after the offline updater has been started.
+    ExitAfterUpdate,
 }
 
 /// Pure root reducer: routes nested messages to their slice reducers and
@@ -357,6 +362,17 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             model.notice = notice;
             AppEffect::None
         }
+        AppMessage::UpdateFinished(result) => match result {
+            Ok(updater::UpdateStart::Started) => AppEffect::ExitAfterUpdate,
+            Ok(updater::UpdateStart::NoUpdate) => {
+                model.settings.update_status = UpdateStatus::Idle;
+                AppEffect::None
+            }
+            Err(message) => {
+                model.settings.update_status = UpdateStatus::Error(message);
+                AppEffect::None
+            }
+        },
         AppMessage::Library(message) => match library::update(&mut model.library, message) {
             library::LibraryEffect::None => AppEffect::None,
             library::LibraryEffect::Scan { generation } => AppEffect::Scan {
@@ -571,17 +587,14 @@ where
                 }
             }
         }
-        AppEffect::StartUpdater => match updater::start_update() {
-            Ok(()) => std::process::exit(0),
-            Err(error) => {
-                let _ = context
-                    .sender()
-                    .send(AppMessage::Settings(SettingsMessage::UpdateFailed(fmt1(
-                        "error.updater_start_failed",
-                        error,
-                    ))));
-            }
-        },
+        AppEffect::StartUpdater => {
+            context.spawn_background(move |_token| {
+                AppMessage::UpdateFinished(
+                    updater::start_update().map_err(|error| error.to_string()),
+                )
+            });
+        }
+        AppEffect::ExitAfterUpdate => std::process::exit(0),
     }
 }
 

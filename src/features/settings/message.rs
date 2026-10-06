@@ -10,8 +10,6 @@ pub enum SettingsMessage {
     ApplyFolders { folders: Vec<String>, rescan: bool },
     /// The user asked to check for app updates.
     CheckUpdate,
-    /// The updater could not be started.
-    UpdateFailed(String),
     /// The indexed-folder expander was expanded or collapsed.
     FoldersExpanded(bool),
 }

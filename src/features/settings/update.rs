@@ -52,10 +52,6 @@ pub fn update(model: &mut SettingsModel, message: SettingsMessage) -> SettingsEf
             model.update_status = UpdateStatus::Starting;
             SettingsEffect::StartUpdater
         }
-        SettingsMessage::UpdateFailed(message) => {
-            model.update_status = UpdateStatus::Error(message);
-            SettingsEffect::None
-        }
         SettingsMessage::FoldersExpanded(expanded) => {
             model.folders_expanded = expanded;
             SettingsEffect::None

@@ -20,26 +20,30 @@ effects that are not visible in the main pages, see
 ## Runtime model
 
 The application is framework-dependent. The main program requires Windows App
-SDK 2.4.0 or a newer runtime in the same major 2 line, and checks the required
+SDK 2.5.1 or a newer runtime in the same major 2 line, and checks the required
 Framework package before calling `windows_reactor::bootstrap()`. A future
 Windows App SDK 3.x runtime does not satisfy this requirement. The installer
 still deploys the complete runtime package set when the Framework is absent.
-If the Framework is missing, it passes a `runtime-spec` for the tested 2.4.0
-installer (version, architecture, package identities, installer URL, and
-SHA-256) to `updater.exe`, waits for the installer to finish, and checks the
-Framework again.
+If `updater.exe` is absent, the app skips runtime checking and setup. When the
+helper exists and the Framework is missing, the app reuses a valid cached 2.5.1
+installer or downloads and verifies it synchronously. A Windows toast reports
+download progress. The verified installer path is passed to `updater.exe`,
+which only runs the installer and returns its result; a failure is reported and
+startup continues without retrying or checking the runtime again.
 
 `updater.exe` is an internal helper and ignores a plain double-click. When
 called by the main program it:
 
-- installs the runtime described by the received `runtime-spec`;
-- downloads and verifies the runtime installer with its supplied SHA-256;
-- checks the application update manifest when explicitly requested;
-- downloads and verifies a SHA-256 protected ZIP from GitHub Releases or R2;
+- installs the already downloaded and SHA-256 verified runtime installer;
+- extracts and applies an already downloaded and SHA-256 verified application update ZIP;
 - updates both `kumorust.exe` and `updater.exe`, then starts the application.
 
-The runtime installer is downloaded from the fixed Microsoft Learn download
-channel (`aka.ms/windowsappsdk/2.4/2.4.0/...`), not from NuGet. It is only used
+The main app owns all update network access: it checks the manifest, downloads
+and verifies the application ZIP, then passes the local file to `updater.exe`.
+The updater has no network client or remote URL handling.
+
+The runtime installer is downloaded by the app from the fixed Microsoft Learn
+download channel (`aka.ms/windowsappsdk/2.5/2.5.1/...`), not from NuGet. It is only used
 when no compatible runtime is installed. NuGet is useful for build-time
 packaging, but the official per-architecture installer is smaller and owns the
 correct framework package installation sequence.
@@ -51,11 +55,11 @@ Requirements:
 - Windows
 - Rust with the MSVC toolchain
 - Visual Studio Build Tools with the MSVC linker and Windows SDK
-- Internet access on the first run if Windows App SDK 2.4 or a compatible newer
+- Internet access on the first run if Windows App SDK 2.5.1 or a compatible newer
   2.x runtime is not installed
 
-Start the main program directly. It uses `updater.exe` only when the required
-runtime is missing:
+Start the main program directly. Runtime setup is attempted only when the
+same-directory `updater.exe` exists and the required runtime is missing:
 
 ```powershell
 cargo run --bin kumorust
@@ -111,12 +115,15 @@ kumorust-update-win-arm64.json
 ```
 
 Use the x64 names for an x64 release. For Cloudflare R2, upload the same files
-to one HTTPS directory and set the source before starting the updater:
+to one HTTPS directory and set the source before starting the app:
 
 ```powershell
 $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
-.\updater.exe
+cargo run --bin kumorust
 ```
+
+Then use the settings page's update action; direct `updater.exe` launches do
+not perform network checks.
 
 The `windows-rs` dependencies used by the application are pinned to commit
 `af92a168e17085b4b3fd4e88f9f2cb83893b8563`.

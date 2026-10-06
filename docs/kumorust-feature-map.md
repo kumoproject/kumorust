@@ -17,7 +17,9 @@ mindmap
       单实例
         第二次启动激活已有窗口
       Windows App SDK 运行时检查
-        缺失时启动 updater.exe 安装
+        缺失时 app 同步校验或下载安装包
+        toast 回报下载进度
+        updater.exe 只负责安装并回报结果
       初始化系统托盘
       加载 settings.json
       初始化库状态
@@ -51,11 +53,12 @@ mindmap
       文件夹列表展开/收起
       手动检查应用更新
     运行时与更新
+      app
+        HTTPS manifest 与 ZIP 下载
+        SemVer 与 SHA-256 校验
       updater.exe
-        运行时安装
-        HTTPS manifest
-        SemVer 比较
-        SHA-256 校验
+        安装 app 已校验的运行时安装包
+        解压并替换本地应用文件
         ZIP 安全校验
         helper 替换文件
         重启主程序
@@ -82,18 +85,23 @@ mindmap
 flowchart TD
     A[启动 kumorust.exe] --> B{主实例是否已存在}
     B -- 是 --> C[激活已有主窗口并退出第二进程]
-    B -- 否 --> D[检查 Windows App SDK runtime]
-    D -- 缺失 --> E[调用 updater.exe 安装 runtime]
-    E --> F{安装后再次检查}
-    F -- 失败 --> X[启动失败]
-    F -- 成功 --> G[启动 windows-reactor]
-    D -- 已安装 --> G
-    G --> H[创建托盘与主窗口]
-    H --> I[读取 settings.json]
-    I --> J[库状态为 Idle]
-    J --> K[等待用户点击刷新]
-    K --> L[后台扫描索引目录]
-    L --> M[提交扫描结果并展示游戏]
+    B -- 否 --> D{updater.exe 是否存在}
+    D -- 否 --> I[启动 windows-reactor]
+    D -- 是 --> E[检查 Windows App SDK runtime]
+    E -- 缺失 --> F[app 校验缓存或阻塞下载]
+    F --> G[toast 回报下载进度]
+    G --> H[调用 updater.exe 安装已校验文件]
+    H --> R{安装结果}
+    R -- 失败 --> X[汇报安装失败]
+    X --> I[启动 windows-reactor]
+    R -- 成功 --> I
+    E -- 已安装 --> I
+    I --> J[创建托盘与主窗口]
+    J --> K[读取 settings.json]
+    K --> L[库状态为 Idle]
+    L --> M[等待用户点击刷新]
+    M --> N[后台扫描索引目录]
+    N --> O[提交扫描结果并展示游戏]
 ```
 
 关键契约：
@@ -196,35 +204,36 @@ flowchart LR
 
 ### 4.4 应用更新
 
-主程序只在用户从设置页点击“检查并更新”时启动 updater。成功启动后主进程退出，由 updater 负责后续工作：
+主程序只在用户从设置页点击“检查并更新”时执行应用更新网络流程。更新包准备完成后，主程序启动离线 updater 并退出：
 
-1. 使用 `KUMORUST_UPDATE_SOURCE`，未设置时使用 GitHub Releases 的 latest download 目录。
-2. 按当前架构生成 `kumorust-update-win-x86.json`、`win-x64` 或 `win-arm64` manifest URL。
-3. 只接受 HTTPS、带 host、无用户名和密码的 URL。
-4. 读取 manifest，校验目标架构、SemVer、SHA-256 和相对更新包 URL。
-5. 远端版本不高于当前版本时不更新，并重新启动主程序。
-6. 下载 ZIP 到 `%LOCALAPPDATA%\KumoRust\updates\...`，校验大小和 SHA-256；下载失败会清理 `.part` 文件。
-7. 解压时拒绝 symbolic link 和不安全路径，要求包含三个文件：
+1. app 使用 `KUMORUST_UPDATE_SOURCE`，未设置时使用 GitHub Releases 的 latest download 目录。
+2. app 按当前架构生成 `kumorust-update-win-x86.json`、`win-x64` 或 `win-arm64` manifest URL。
+3. app 只接受 HTTPS、带 host、无用户名和密码的 URL。
+4. app 读取 manifest，校验目标架构、SemVer、SHA-256 和相对更新包 URL。
+5. 远端版本不高于当前版本时保持 app 运行，不启动 updater。
+6. app 下载 ZIP 到 `%LOCALAPPDATA%\KumoRust\updates\...`，校验大小和 SHA-256；下载失败会清理 `.part` 文件。
+7. app 将已校验的本地 ZIP 交给 updater；updater 解压时拒绝 symbolic link 和不安全路径，要求包含三个文件：
    - `kumorust.exe`
    - `updater.exe`
    - `microsoft.windowsappruntime.bootstrap.dll`
-8. 复制 updater 为临时 helper，等待旧主进程退出。
+8. updater 复制自身为临时 helper，等待旧主进程退出。
 9. 将新文件暂存、备份旧文件、替换目标文件；失败时尝试回滚。
 10. 启动新主程序，清理更新包目录，并安排删除 helper 自身。
 
-直接双击 `updater.exe` 不会执行更新，会被视为无内部参数并忽略。updater 自己也有单实例保护。
+直接双击 `updater.exe` 不会执行更新，会被视为无内部参数并忽略。updater 只处理本地安装包和本地文件替换，不创建网络客户端。updater 自己也有单实例保护。
 
 ### 4.5 Windows App SDK runtime 引导
 
 这条路径与应用版本更新分开：
 
-- 主程序每次成为第一个实例后检查 Windows App SDK `2.4.0` 最低版本，以及同一主版本 `2.x` 的兼容性。
+- 主程序每次成为第一个实例后检查 Windows App SDK `2.5.1` 最低版本，以及同一主版本 `2.x` 的兼容性。
 - 启动门槛只检查 `windows-reactor` 实际 bootstrap 使用的 Framework package family、发布者、架构和最低版本；不因 Main、Singleton 或版本化 DDLM 的注册差异误判 runtime 缺失。
 - Windows App SDK `3.x` 不满足当前应用的 runtime 要求。
-- 缺失时通过同目录的 updater 下载固定 Microsoft Learn `aka.ms` 安装器。
-- 安装器下载到 runtime 缓存目录，使用内置 SHA-256 校验；有效缓存可复用。
-- 以 quiet 模式安装，退出码 `3010` 视为可接受的重启提示。
-- 安装结束后再次查询 package，仍缺失则主程序启动失败。
+- 只有同目录 `updater.exe` 存在时，app 才检查 runtime；缺少 updater 时跳过 runtime 检查和下载安装。
+- 缺失时由 app 在启动线程同步检查 runtime 缓存；缓存无效时从固定 Microsoft Learn `aka.ms` 地址下载 2.5.1 安装器。
+- 下载写入 runtime 缓存目录并使用内置 SHA-256 校验；有效缓存可复用，避免重复下载。
+- 下载进度通过 Windows toast 报告，然后把已校验的安装器路径交给同目录 updater。
+- updater 只以 quiet 模式执行安装，退出码 `3010` 或 `1641` 视为成功；app 根据退出状态报告失败，但仍继续启动，不重试也不做二次 runtime 检查。
 
 ## 5. 平台与窗口行为
 
@@ -267,7 +276,7 @@ domain
 services
   -> scanner: 递归文件系统扫描
   -> icon_extractor: Windows 图标转 PNG
-  -> updater: runtime 安装和 updater 进程启动
+  -> updater: runtime 安装、应用本地包替换和 updater 进程启动
 
 core
   -> config: settings.json 和图标目录
@@ -276,6 +285,7 @@ core
 
 platform
   -> window: 激活
+  -> notifications: runtime 下载进度与失败 toast
 ```
 
 MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 Effect；根组件的 `perform` 执行文件系统、对话框、后台任务和进程操作；后台任务完成后再发回 Message。
@@ -288,7 +298,7 @@ MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 
 | 本地图标 | 读写 `%LOCALAPPDATA%\KumoRust\icons\*.png` |
 | 游戏目录 | 只读递归遍历、读取 metadata、提取图标 |
 | 游戏启动 | 以用户权限 spawn `.exe`，工作目录为游戏父目录 |
-| runtime 网络 | 固定 HTTPS Microsoft Learn 下载地址，缺 runtime 时触发 |
+| runtime 网络 | app 使用固定 HTTPS Microsoft Learn 下载地址，缺 runtime 且缓存无效时触发 |
 | 应用更新网络 | 用户点击更新后访问默认 GitHub 地址或 `KUMORUST_UPDATE_SOURCE` |
 | 更新写入 | `%LOCALAPPDATA%\KumoRust\updates` 和安装目录中的替换文件/备份 |
 | 外部进程 | `updater.exe`、Windows App SDK installer、游戏进程、更新 helper |
@@ -342,4 +352,4 @@ MVU 数据流原则：View 只发 Message；reducer 只改内存模型并返回 
 - [x] 点击刷新仍会启动后台扫描。
 - [x] 添加文件夹仍会保存并扫描。
 - [x] 移除文件夹仍会保存并扫描。
-- [x] Windows App SDK runtime 检查与 updater 流程不受本次变更影响。
+- [x] Windows App SDK 2.5.1 缺失时由 app 同步下载并回报进度，updater 只安装已校验的安装包。
