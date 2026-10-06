@@ -1,2 +1,3 @@
+# 静态链接 vcruntime 会增加 100kb 左右的体积
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]

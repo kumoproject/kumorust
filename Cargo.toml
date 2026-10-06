@@ -17,6 +17,7 @@ panic = "abort"
 [dependencies]
 icoextract_rs = "0.1"
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -50,9 +51,3 @@ windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "af92
 
 [build-dependencies]
 winresource = "0.1.31"
-
-[target.'cfg(windows)'.dependencies]
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
-
-[target.'cfg(not(windows))'.dependencies]
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
