@@ -2,11 +2,13 @@
 //! bootstrapped. The notifier is intentionally best effort: runtime setup
 //! must still work when notifications are unavailable.
 
-#[cfg(windows)]
 use std::sync::mpsc::Sender;
 
-#[cfg(windows)]
 const APP_USER_MODEL_ID: &str = "KumoRust.KumoRust";
+
+const TOAST_TAG: &str = "windows-app-sdk";
+
+const TOAST_GROUP: &str = "runtime";
 
 #[derive(Debug)]
 enum RuntimeNotification {
@@ -21,15 +23,13 @@ enum RuntimeNotification {
 /// Sends runtime setup updates from a COM worker thread so the startup thread
 /// can remain blocked on the download and installer without UI apartment work.
 pub struct RuntimeNotifier {
-    #[cfg(windows)]
     sender: Option<Sender<RuntimeNotification>>,
-    #[cfg(windows)]
+
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl RuntimeNotifier {
     pub fn new() -> Self {
-        #[cfg(windows)]
         {
             let (sender, receiver) = std::sync::mpsc::channel();
             let spawned = std::thread::Builder::new()
@@ -67,7 +67,6 @@ impl RuntimeNotifier {
     }
 
     fn send(&self, notification: RuntimeNotification) {
-        #[cfg(windows)]
         if let Some(sender) = &self.sender {
             let _ = sender.send(notification);
         }
@@ -79,7 +78,6 @@ impl RuntimeNotifier {
 
 impl Drop for RuntimeNotifier {
     fn drop(&mut self) {
-        #[cfg(windows)]
         {
             // Closing the channel and joining drains queued progress/failure
             // toasts before startup returns or the process exits.
@@ -91,7 +89,6 @@ impl Drop for RuntimeNotifier {
     }
 }
 
-#[cfg(windows)]
 fn notification_thread(receiver: std::sync::mpsc::Receiver<RuntimeNotification>) {
     use windows::Win32::combaseapi::{CoInitializeEx, CoUninitialize};
     use windows::Win32::objbase::COINIT_MULTITHREADED;
@@ -110,16 +107,19 @@ fn notification_thread(receiver: std::sync::mpsc::Receiver<RuntimeNotification>)
         }
     };
 
+    let mut download_toast_active = false;
     for notification in receiver {
-        if let Err(error) = show_notification(&notifier, notification) {
+        if let Err(error) =
+            dispatch_notification(&notifier, &mut download_toast_active, notification)
+        {
             eprintln!("显示 Windows toast 失败：{error}");
         }
     }
 
+    drop(notifier);
     unsafe { CoUninitialize() };
 }
 
-#[cfg(windows)]
 fn initialize_toast_notifier() -> windows::core::Result<windows::UI::Notifications::ToastNotifier> {
     use windows::UI::Notifications::ToastNotificationManager;
 
@@ -129,7 +129,6 @@ fn initialize_toast_notifier() -> windows::core::Result<windows::UI::Notificatio
     ))
 }
 
-#[cfg(windows)]
 fn ensure_start_menu_shortcut() -> windows::core::Result<()> {
     use std::fs;
     use std::path::PathBuf;
@@ -218,14 +217,43 @@ fn ensure_start_menu_shortcut() -> windows::core::Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
 fn wide_path(path: &std::path::Path) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
 
     path.as_os_str().encode_wide().chain([0]).collect()
 }
 
-#[cfg(windows)]
+fn dispatch_notification(
+    notifier: &windows::UI::Notifications::ToastNotifier,
+    download_toast_active: &mut bool,
+    notification: RuntimeNotification,
+) -> windows::core::Result<()> {
+    match notification {
+        RuntimeNotification::Downloading {
+            bytes_done,
+            bytes_total,
+        } => {
+            let result = if *download_toast_active {
+                update_download_notification(notifier, bytes_done, bytes_total)
+            } else {
+                show_notification(
+                    notifier,
+                    RuntimeNotification::Downloading {
+                        bytes_done,
+                        bytes_total,
+                    },
+                )
+            };
+            *download_toast_active = result.is_ok();
+            result
+        }
+        notification => {
+            *download_toast_active = false;
+            show_notification(notifier, notification)
+        }
+    }
+}
+
 fn show_notification(
     notifier: &windows::UI::Notifications::ToastNotifier,
     notification: RuntimeNotification,
@@ -247,30 +275,22 @@ fn show_notification(
         RuntimeNotification::Downloading {
             bytes_done,
             bytes_total,
-        } => {
-            let message = bytes_total
-                .filter(|total| *total > 0)
-                .map(|total| {
-                    let percent = bytes_done.saturating_mul(100) / total;
-                    format!("正在下载 Windows App SDK（{percent}%）")
-                })
-                .unwrap_or_else(|| "正在下载 Windows App SDK".to_string());
-            (message, Some((bytes_done, bytes_total)))
-        }
+        } => (
+            "正在下载 Windows App SDK".to_string(),
+            Some((bytes_done, bytes_total)),
+        ),
         RuntimeNotification::Failed(error) => (format!("Windows App SDK 安装失败：{error}"), None),
     };
 
-    let progress_xml = progress
-        .and_then(|(bytes_done, bytes_total)| {
-            let total = bytes_total?;
-            if total == 0 {
-                return None;
-            }
-            let value = (bytes_done as f64 / total as f64).clamp(0.0, 1.0);
-            let percent = (value * 100.0).round() as u64;
-            Some(format!(
-                "<progress value=\"{value:.4}\" status=\"正在下载\" valueStringOverride=\"{percent}%\" />"
-            ))
+    let progress_values = progress.and_then(|(bytes_done, bytes_total)| {
+        let total = bytes_total.filter(|total| *total > 0)?;
+        let value = (bytes_done as f64 / total as f64).clamp(0.0, 1.0);
+        let percent = (value * 100.0).round() as u64;
+        Some((value, percent))
+    });
+    let progress_xml = progress_values
+        .map(|_| {
+            "<progress value=\"{progressValue}\" status=\"{progressStatus}\" valueStringOverride=\"{progressValueString}\" />"
         })
         .unwrap_or_default();
     let xml = format!(
@@ -282,12 +302,75 @@ fn show_notification(
     let document = XmlDocument::new()?;
     document.LoadXml(&HSTRING::from(xml))?;
     let toast = ToastNotification::CreateToastNotification(&document)?;
+    if let Some((value, percent)) = progress_values {
+        let data = download_notification_data(value, percent)?;
+        toast.SetData(&data)?;
+    }
     let _ = toast.SetTag(h!("windows-app-sdk"));
     let _ = toast.SetGroup(h!("runtime"));
     notifier.Show(&toast)
 }
 
-#[cfg(windows)]
+fn update_download_notification(
+    notifier: &windows::UI::Notifications::ToastNotifier,
+    bytes_done: u64,
+    bytes_total: Option<u64>,
+) -> windows::core::Result<()> {
+    use windows::UI::Notifications::NotificationUpdateResult;
+    use windows::core::{Error, HRESULT, HSTRING};
+
+    let Some(total) = bytes_total.filter(|total| *total > 0) else {
+        return Ok(());
+    };
+    let value = (bytes_done as f64 / total as f64).clamp(0.0, 1.0);
+    let percent = (value * 100.0).round() as u64;
+
+    let data = download_notification_data(value, percent)?;
+    let result = notifier.UpdateWithTagAndGroup(
+        &data,
+        &HSTRING::from(TOAST_TAG),
+        &HSTRING::from(TOAST_GROUP),
+    )?;
+    if result == NotificationUpdateResult::Succeeded {
+        return Ok(());
+    }
+    if result == NotificationUpdateResult::NotificationNotFound {
+        return show_notification(
+            notifier,
+            RuntimeNotification::Downloading {
+                bytes_done,
+                bytes_total: Some(total),
+            },
+        );
+    }
+
+    Err(Error::new(
+        HRESULT(0x8000_4005_u32 as i32),
+        "Windows toast progress update failed",
+    ))
+}
+
+fn download_notification_data(
+    value: f64,
+    percent: u64,
+) -> windows::core::Result<windows::UI::Notifications::NotificationData> {
+    use windows::UI::Notifications::NotificationData;
+    use windows::core::HSTRING;
+
+    let data = NotificationData::new()?;
+    let values = data.Values()?;
+    values.Insert(
+        &HSTRING::from("progressValue"),
+        &HSTRING::from(format!("{value:.4}")),
+    )?;
+    values.Insert(
+        &HSTRING::from("progressValueString"),
+        &HSTRING::from(format!("{percent}%")),
+    )?;
+    values.Insert(&HSTRING::from("progressStatus"), &HSTRING::from("正在下载"))?;
+    Ok(data)
+}
+
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
