@@ -24,8 +24,7 @@ use crate::services::updater_process;
 const DOWNLOAD_BUFFER_SIZE: usize = 128 * 1024;
 const DOWNLOAD_PROGRESS_BYTES: u64 = 512 * 1024;
 const DOWNLOAD_PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
-const DOWNLOAD_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0";
+const DOWNLOAD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0";
 const RUNTIME_INSTALLER_ARM64_URL: &str =
     "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-arm64.exe";
 const RUNTIME_INSTALLER_X64_URL: &str =
