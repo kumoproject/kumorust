@@ -647,7 +647,6 @@ dependencies = [
  "windows-notifyicon",
  "windows-pickers",
  "windows-reactor",
- "windows-time",
  "winresource",
 ]
 
