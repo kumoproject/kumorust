@@ -1244,6 +1244,7 @@ dependencies = [
 name = "test-wasdk-toast"
 version = "0.1.0"
 dependencies = [
+ "image",
  "reqwest",
  "sha2",
  "single-instance",

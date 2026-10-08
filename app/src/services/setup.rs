@@ -78,6 +78,11 @@ fn try_ensure_runtime(
     notifier.phase("installing");
     updater_process::install_runtime(updater, &installer)
         .map_err(|error| updater_error(format!("启动 runtime 安装器失败: {error}")))?;
+    if let Err(error) = fs::remove_file(&installer)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("清理 Windows App SDK installer 失败: {error}");
+    }
     notifier.completed();
     Ok(())
 }

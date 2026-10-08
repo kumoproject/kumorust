@@ -9,6 +9,7 @@ name = "test-wasdk-toast"
 test = false
 
 [dependencies]
+image = { workspace = true }
 reqwest = { workspace = true }
 sha2 = { workspace = true }
 single-instance = { workspace = true }

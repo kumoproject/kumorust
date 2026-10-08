@@ -38,8 +38,8 @@ from `%LOCALAPPDATA%\KumoRust\WindowsAppSDK`; it does not remove an installed ru
 cargo run -p test-wasdk-toast -- toast-demo
 ```
 
-This sends install and progress states through the linked notification module
-without downloading or installing anything.
+This updates one toast through download progress and the indeterminate install
+state without downloading or installing anything.
 
 ## Classification
 

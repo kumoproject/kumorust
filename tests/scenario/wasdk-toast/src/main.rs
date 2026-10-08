@@ -144,14 +144,14 @@ fn run_toast_demo(mut args: impl Iterator<Item = OsString>) -> Result<(), Box<dy
     }
 
     let notifier = platform::notifications::RuntimeNotifier::new();
-    notifier.phase("installing");
-    thread::sleep(Duration::from_millis(700));
     notifier.downloading(0, Some(100));
     for percent in [15, 42, 73, 100] {
         thread::sleep(Duration::from_millis(900));
         notifier.downloading(percent, Some(100));
     }
     thread::sleep(Duration::from_millis(700));
+    notifier.phase("installing");
+    thread::sleep(Duration::from_millis(1800));
     notifier.completed();
     drop(notifier);
     Ok(())
