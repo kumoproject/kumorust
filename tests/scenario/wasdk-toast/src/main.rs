@@ -159,7 +159,7 @@ fn run_toast_demo(mut args: impl Iterator<Item = OsString>) -> Result<(), Box<dy
 
 fn print_help() {
     println!(
-        "Usage:\n  cargo run -p test-setup-toast -- runtime [--clear-cache]\n  cargo run -p test-setup-toast -- toast-demo\n\n\
+        "Usage:\n  cargo run -p test-wasdk-toast -- runtime [--clear-cache]\n  cargo run -p test-wasdk-toast -- toast-demo\n\n\
          runtime forces the linked setup.rs download, verification, notification,\n\
          and updater install function without checking whether the runtime is installed.\n\
          --clear-cache removes the current architecture's cached installer and partial download first.\n\

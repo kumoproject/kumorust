@@ -1,4 +1,4 @@
-# KumoRust Setup Toast Scenario
+# KumoRust WASDK Toast Scenario
 
 This is a manually invoked, Windows-only end-to-end scenario test. It links the
 repository's notification, runtime, and error modules and includes
@@ -11,7 +11,7 @@ verification, install, and toast paths.
 From the workspace root, run:
 
 ```powershell
-cargo run -p test-setup-toast -- runtime
+cargo run -p test-wasdk-toast -- runtime
 ```
 
 The command executes the linked runtime setup while bypassing only the
@@ -26,7 +26,7 @@ setup returns an error.
 To remove the cached installer and partial download first, forcing a fresh download:
 
 ```powershell
-cargo run -p test-setup-toast -- runtime --clear-cache
+cargo run -p test-wasdk-toast -- runtime --clear-cache
 ```
 
 `--clear-cache` only removes the installer files for the current architecture
@@ -35,7 +35,7 @@ from `%LOCALAPPDATA%\KumoRust\WindowsAppSDK`; it does not remove an installed ru
 ## Preview toasts only
 
 ```powershell
-cargo run -p test-setup-toast -- toast-demo
+cargo run -p test-wasdk-toast -- toast-demo
 ```
 
 This sends install and progress states through the linked notification module

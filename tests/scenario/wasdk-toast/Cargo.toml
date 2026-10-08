@@ -1,11 +1,11 @@
 [package]
-name = "test-setup-toast"
+name = "test-wasdk-toast"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [[bin]]
-name = "test-setup-toast"
+name = "test-wasdk-toast"
 test = false
 
 [dependencies]
