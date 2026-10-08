@@ -13,6 +13,7 @@ enum RuntimeNotification {
         bytes_done: u64,
         bytes_total: Option<u64>,
     },
+    Completed,
     Failed(String),
 }
 
@@ -50,6 +51,10 @@ impl RuntimeNotifier {
             bytes_done,
             bytes_total,
         });
+    }
+
+    pub fn completed(&self) {
+        self.send(RuntimeNotification::Completed);
     }
 
     pub fn failed(&self, message: &str) {
@@ -273,6 +278,7 @@ fn show_notification(
             "正在下载 Windows App SDK".to_string(),
             Some((bytes_done, bytes_total)),
         ),
+        RuntimeNotification::Completed => ("Windows App SDK 安装完成".to_string(), None),
         RuntimeNotification::Failed(error) => (format!("Windows App SDK 安装失败：{error}"), None),
     };
 

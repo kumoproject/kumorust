@@ -77,7 +77,9 @@ fn try_ensure_runtime(
     let installer = prepare_runtime_installer(spec, notifier)?;
     notifier.phase("installing");
     updater_process::install_runtime(updater, &installer)
-        .map_err(|error| updater_error(format!("启动 runtime 安装器失败: {error}")))
+        .map_err(|error| updater_error(format!("启动 runtime 安装器失败: {error}")))?;
+    notifier.completed();
+    Ok(())
 }
 
 fn prepare_runtime_installer(
