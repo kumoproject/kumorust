@@ -32,18 +32,40 @@ pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
         .grid_column(0)
         .content(icon);
 
+    let display_name = game
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.title.clone())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| game.name.clone());
+    let source_line = game
+        .metadata
+        .as_ref()
+        .and_then(|metadata| {
+            let mut values = Vec::new();
+            if let Some(maker) = &metadata.maker {
+                if !maker.is_empty() {
+                    values.push(maker.clone());
+                }
+            }
+            if let Some(rj_code) = &metadata.rj_code {
+                values.push(rj_code.clone());
+            }
+            (!values.is_empty()).then(|| values.join(" · "))
+        })
+        .unwrap_or_else(|| tr("library.game_type").to_string());
     let details = Border::new()
         .vertical_alignment(VerticalAlignment::Center)
         .grid_column(1)
         .content(
             StackPanel::new().spacing(4.0).children((
                 TextBlock::new()
-                    .text(game.name.clone())
+                    .text(display_name)
                     .font_size(18.0)
                     .max_lines(1)
                     .text_trimming(TextTrimming::CharacterEllipsis),
                 TextBlock::new()
-                    .text(tr("library.game_type"))
+                    .text(source_line)
                     .font_size(13.0)
                     .foreground(TEXT_SECONDARY),
                 TextBlock::new()

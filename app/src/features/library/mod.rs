@@ -13,6 +13,6 @@ mod update;
 mod view;
 
 pub use message::LibraryMessage;
-pub use model::{LibraryModel, ScanStatus};
+pub use model::{AddGameDraft, AddGameStatus, LibraryModel, ScanStatus};
 pub use update::{LibraryEffect, update};
 pub use view::view;

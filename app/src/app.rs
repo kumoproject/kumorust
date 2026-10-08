@@ -7,6 +7,7 @@
 //! collected into [`AppEffect`] and executed by [`perform`].
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -20,7 +21,7 @@ use crate::domain::folder;
 use crate::features::library::{self, LibraryMessage, LibraryModel};
 use crate::features::settings::{self, SettingsMessage, SettingsModel, UpdateStatus};
 use crate::platform::window;
-use crate::services::{application_update, scanner};
+use crate::services::{api, application_update, fingerprint, scanner};
 
 const TRAY_TOOLTIP: &str = "KumoRust";
 const APP_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
@@ -334,6 +335,33 @@ pub enum AppEffect {
     StartUpdater,
     /// Exit after the offline updater has been started.
     ExitAfterUpdate,
+    /// Show the system file picker for one executable.
+    PickExecutable,
+    /// Hash a selected executable in the background.
+    Fingerprint {
+        path: String,
+    },
+    /// Look up an executable fingerprint on the server.
+    Lookup {
+        path: String,
+        fingerprint: kumo_contracts::ExecutableFingerprint,
+    },
+    /// Ask the server to fetch and cache DLsite metadata.
+    SearchDlsite {
+        rj_code: String,
+    },
+    /// Persist manually entered metadata and bind it to a fingerprint.
+    Register {
+        path: String,
+        fingerprint: kumo_contracts::ExecutableFingerprint,
+        metadata: kumo_contracts::GameMetadata,
+    },
+    /// Add a resolved game to the local library and metadata cache.
+    CommitGame {
+        path: String,
+        metadata: kumo_contracts::GameMetadata,
+    },
+    Notice(String),
 }
 
 /// Pure root reducer: routes nested messages to their slice reducers and
@@ -381,6 +409,25 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             library::LibraryEffect::Launch { path, directory } => {
                 AppEffect::LaunchGame { path, directory }
             }
+            library::LibraryEffect::PickExecutable => AppEffect::PickExecutable,
+            library::LibraryEffect::Fingerprint { path } => AppEffect::Fingerprint { path },
+            library::LibraryEffect::Lookup { path, fingerprint } => {
+                AppEffect::Lookup { path, fingerprint }
+            }
+            library::LibraryEffect::SearchDlsite { rj_code } => AppEffect::SearchDlsite { rj_code },
+            library::LibraryEffect::Register {
+                path,
+                fingerprint,
+                metadata,
+            } => AppEffect::Register {
+                path,
+                fingerprint,
+                metadata,
+            },
+            library::LibraryEffect::CommitKnown { path, metadata } => {
+                AppEffect::CommitGame { path, metadata }
+            }
+            library::LibraryEffect::Notice(notice) => AppEffect::Notice(notice),
         },
         AppMessage::Settings(message) => match settings::update(&mut model.settings, message) {
             settings::SettingsEffect::None => AppEffect::None,
@@ -548,6 +595,9 @@ where
 {
     match effect {
         AppEffect::None => {}
+        AppEffect::Notice(notice) => {
+            let _ = context.sender().send(AppMessage::Notice(notice));
+        }
         AppEffect::Scan {
             generation,
             folders,
@@ -594,6 +644,35 @@ where
             });
         }
         AppEffect::ExitAfterUpdate => std::process::exit(0),
+        AppEffect::PickExecutable => request_executable(context),
+        AppEffect::Fingerprint { path } => {
+            context.spawn_background(move |_token| fingerprint_task(path));
+        }
+        AppEffect::Lookup { path, fingerprint } => {
+            context.spawn_background(move |_token| lookup_task(path, fingerprint));
+        }
+        AppEffect::SearchDlsite { rj_code } => {
+            context.spawn_background(move |_token| search_dlsite_task(rj_code));
+        }
+        AppEffect::Register {
+            path,
+            fingerprint,
+            metadata,
+        } => {
+            context.spawn_background(move |_token| register_game_task(path, fingerprint, metadata));
+        }
+        AppEffect::CommitGame { path, metadata } => {
+            let sender = context.sender();
+            let result = config::save_game_metadata(&path, &metadata)
+                .map_err(|error| error.to_string())
+                .and_then(|()| {
+                    scanner::game_entry_from_path(Path::new(&path), |_| Some(metadata.clone()))
+                        .ok_or_else(|| "选择的 exe 已不存在".to_owned())
+                });
+            let _ = sender.send(AppMessage::Library(LibraryMessage::GameCommitted {
+                result,
+            }));
+        }
     }
 }
 
@@ -618,6 +697,53 @@ where
             current_folders,
             result: result.map_err(|error| error.to_string()),
         });
+}
+
+fn request_executable<C>(context: &ComponentContext<C>)
+where
+    C: Component<Message = AppMessage>,
+{
+    let _ = windows_pickers::OpenFilePicker::new()
+        .title(tr("library.add_game.picker_title"))
+        .filter_extensions(tr("library.add_game.exe_filter"), ["exe"])
+        .request(context, |result| {
+            AppMessage::Library(LibraryMessage::ExecutablePicked {
+                result: result.map_err(|error| error.to_string()),
+            })
+        });
+}
+
+fn fingerprint_task(path: String) -> AppMessage {
+    let result = fingerprint::fingerprint(Path::new(&path));
+    AppMessage::Library(LibraryMessage::FingerprintReady { path, result })
+}
+
+fn lookup_task(path: String, fingerprint: kumo_contracts::ExecutableFingerprint) -> AppMessage {
+    let result = api::lookup_game(fingerprint.clone());
+    AppMessage::Library(LibraryMessage::LookupFinished {
+        path,
+        fingerprint,
+        result,
+    })
+}
+
+fn search_dlsite_task(rj_code: String) -> AppMessage {
+    AppMessage::Library(LibraryMessage::DlsiteSearchFinished(api::search_dlsite(
+        rj_code,
+    )))
+}
+
+fn register_game_task(
+    path: String,
+    fingerprint: kumo_contracts::ExecutableFingerprint,
+    metadata: kumo_contracts::GameMetadata,
+) -> AppMessage {
+    let result = api::register_game(fingerprint.clone(), metadata);
+    AppMessage::Library(LibraryMessage::RegistrationFinished {
+        path,
+        fingerprint,
+        result,
+    })
 }
 
 fn apply_picked_folder<C>(

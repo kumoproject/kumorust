@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use kumo_contracts::GameMetadata;
 use serde::{Deserialize, Serialize};
 
 use crate::core::error::{Error, Result};
@@ -10,6 +12,8 @@ use crate::domain::folder;
 struct SettingsFile {
     #[serde(default)]
     library_folders: Vec<String>,
+    #[serde(default)]
+    game_metadata: HashMap<String, GameMetadata>,
 }
 
 pub fn app_data_directory() -> PathBuf {
@@ -37,6 +41,18 @@ pub fn save_library_folders(folders: &[String]) -> Result<()> {
     save_settings(&settings)
 }
 
+pub fn load_game_metadata() -> HashMap<String, GameMetadata> {
+    load_settings().game_metadata
+}
+
+pub fn save_game_metadata(path: &str, metadata: &GameMetadata) -> Result<()> {
+    let mut settings = load_settings();
+    settings
+        .game_metadata
+        .insert(path_key(path), metadata.clone());
+    save_settings(&settings)
+}
+
 fn load_settings() -> SettingsFile {
     let Ok(bytes) = fs::read(settings_path()) else {
         return SettingsFile::default();
@@ -50,4 +66,8 @@ fn save_settings(settings: &SettingsFile) -> Result<()> {
         .map_err(|error| Error::Message(format!("序列化设置失败：{error}")))?;
     fs::write(settings_path(), bytes)?;
     Ok(())
+}
+
+fn path_key(path: &str) -> String {
+    path.replace('/', "\\").to_ascii_lowercase()
 }

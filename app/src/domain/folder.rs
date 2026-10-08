@@ -2,6 +2,8 @@
 
 use std::time::SystemTime;
 
+use kumo_contracts::GameMetadata;
+
 /// A discovered game executable in the library.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameEntry {
@@ -11,6 +13,7 @@ pub struct GameEntry {
     pub size: u64,
     pub modified: SystemTime,
     pub icon_uri: Option<String>,
+    pub metadata: Option<GameMetadata>,
 }
 
 /// Whether `candidate` is already present in `folders` (case-insensitive,

@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use kumo_contracts::GameMetadata;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -33,41 +34,57 @@ pub fn scan_folders(folders: &[String], report: impl Fn(usize, usize)) -> ScanOu
     candidates.sort_by_cached_key(|path| path.to_string_lossy().to_ascii_lowercase());
     report(inspected, 0);
 
+    let metadata_cache = config::load_game_metadata();
     let mut games = Vec::with_capacity(candidates.len());
     for path in candidates {
-        let Ok(metadata) = fs::metadata(&path) else {
-            continue;
-        };
-        if !metadata.is_file() {
-            continue;
+        if let Some(game) = game_entry_from_path(&path, |path| {
+            metadata_cache
+                .get(&path.replace('/', "\\").to_ascii_lowercase())
+                .cloned()
+        }) {
+            games.push(game);
+            report(inspected, games.len());
         }
-
-        let path_text = path.to_string_lossy().into_owned();
-        let name = path
-            .file_stem()
-            .or_else(|| path.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| tr("library.unknown_game").to_string());
-        let directory = path
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
-        let icon_uri = cached_icon_uri(&path, &metadata);
-
-        games.push(GameEntry {
-            path: path_text,
-            name,
-            directory,
-            size: metadata.len(),
-            modified,
-            icon_uri,
-        });
-        report(inspected, games.len());
     }
 
     ScanOutput { games, inspected }
+}
+
+/// Builds a display entry for a selected executable or a scanner candidate.
+/// The metadata lookup is injected so background scans can use the local
+/// cache without coupling this service to the settings representation.
+pub fn game_entry_from_path(
+    path: &Path,
+    metadata_for_path: impl FnOnce(&str) -> Option<GameMetadata>,
+) -> Option<GameEntry> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let path_text = path.to_string_lossy().into_owned();
+    let name = path
+        .file_stem()
+        .or_else(|| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| tr("library.unknown_game").to_string());
+    let directory = path
+        .parent()
+        .map(|parent| parent.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+    let icon_uri = cached_icon_uri(path, &metadata);
+    let game_metadata = metadata_for_path(&path_text);
+
+    Some(GameEntry {
+        path: path_text,
+        name,
+        directory,
+        size: metadata.len(),
+        modified,
+        icon_uri,
+        metadata: game_metadata,
+    })
 }
 
 fn collect_executables(
