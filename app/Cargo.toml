@@ -1,0 +1,38 @@
+[package]
+name = "kumorust"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+icoextract_rs = { workspace = true }
+image = { workspace = true }
+reqwest = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+single-instance = { workspace = true }
+url = { workspace = true }
+windows = { workspace = true, features = [
+    "Foundation",
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "appmodel",
+    "commctrl",
+    "combaseapi",
+    "handleapi",
+    "objbase",
+    "processthreadsapi",
+    "shellapi",
+    "synchapi",
+    "winerror",
+    "winreg",
+    "winuser",
+] }
+windows-notifyicon = { workspace = true }
+windows-pickers = { workspace = true, features = ["reactor"] }
+windows-reactor = { workspace = true }
+
+[build-dependencies]
+winresource = { workspace = true }

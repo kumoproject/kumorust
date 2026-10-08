@@ -1241,6 +1241,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-setup-toast"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "sha2",
+ "single-instance",
+ "url",
+ "windows",
+ "zip",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"

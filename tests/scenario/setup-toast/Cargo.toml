@@ -1,0 +1,26 @@
+[package]
+name = "test-setup-toast"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "test-setup-toast"
+test = false
+
+[dependencies]
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+single-instance = { workspace = true }
+url = { workspace = true }
+zip = { workspace = true }
+windows = { workspace = true, features = [
+    "Foundation",
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "appmodel",
+    "combaseapi",
+    "objbase",
+    "winerror",
+    "winreg",
+] }

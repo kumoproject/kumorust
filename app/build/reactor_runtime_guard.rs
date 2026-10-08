@@ -15,7 +15,10 @@ pub fn verify(wasdk_version: &str) -> Result<(), String> {
         env::var_os("CARGO_MANIFEST_DIR")
             .ok_or_else(|| String::from("CARGO_MANIFEST_DIR is not available"))?,
     );
-    let lockfile = manifest_dir.join("Cargo.lock");
+    let workspace_root = manifest_dir
+        .parent()
+        .ok_or_else(|| String::from("app manifest has no parent workspace directory"))?;
+    let lockfile = workspace_root.join("Cargo.lock");
     let revision = locked_reactor_revision(&lockfile)?;
     let cargo_home = cargo_home()?;
     let source = find_reactor_bindings(&cargo_home, &revision)?;

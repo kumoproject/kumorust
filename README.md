@@ -62,20 +62,20 @@ Start the main program directly. Runtime setup is attempted only when the
 same-directory `updater.exe` exists and the required runtime is missing:
 
 ```powershell
-cargo run --bin kumorust
+cargo run
 ```
 
 Pass `--silent` to start with only the notification icon and open the main
 window later from the tray menu:
 
 ```powershell
-cargo run --bin kumorust -- --silent
+cargo run -- --silent
 ```
 
 Build both binaries for a Portable deployment and start the main program:
 
 ```powershell
-cargo build --bins --locked
+cargo build -p kumorust -p kumorust-updater --bins --locked
 .\target\debug\kumorust.exe
 ```
 
@@ -119,7 +119,7 @@ to one HTTPS directory and set the source before starting the app:
 
 ```powershell
 $env:KUMORUST_UPDATE_SOURCE = "https://example.r2.dev/kumorust"
-cargo run --bin kumorust
+cargo run
 ```
 
 Then use the settings page's update action; direct `updater.exe` launches do
