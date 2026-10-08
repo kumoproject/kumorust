@@ -22,7 +22,7 @@ pub fn fingerprint(path: &Path) -> Result<ExecutableFingerprint, String> {
     let file = File::open(path).map_err(|error| format!("打开 exe 失败：{error}"))?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 1024 * 1024];
+    let mut buffer = vec![0_u8; 1024 * 1024];
     loop {
         let read = reader
             .read(&mut buffer)

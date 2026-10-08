@@ -22,8 +22,8 @@ unknown one opens a metadata dialog with an RJ search action and a manual save
 path. Successful entries are cached locally so a later library scan keeps the
 metadata while the server remains the canonical lookup store.
 
-The client uses `http://127.0.0.1:3100` by default. Set `KUMO_SERVER_URL` in
-the process environment when the server is hosted elsewhere.
+The client uses `http://124.222.225.103:3100` by default. Set
+`KUMO_SERVER_URL` in the process environment to use a different server.
 
 For the complete feature and behavior inventory, including startup side
 effects that are not visible in the main pages, see

@@ -6,7 +6,7 @@ use reqwest::blocking::{Client, Response};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
-const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:3100";
+const DEFAULT_SERVER_URL: &str = "http://124.222.225.103:3100";
 
 pub fn lookup_game(fingerprint: ExecutableFingerprint) -> Result<Option<GameMetadata>, String> {
     let response = client()?
