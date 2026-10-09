@@ -18,7 +18,13 @@ pub fn folder_card(folder: &str, cx: &ViewContext<KumoApp>) -> SettingsCard {
         .content(SymbolIcon::new().symbol(Symbol::Delete))
         .tooltip(tr("settings.remove_folder"));
 
-    SettingsCard::new(folder).expander_item().content(remove)
+    let mut card = SettingsCard::new(folder).expander_item();
+    if !std::path::Path::new(folder).is_dir() {
+        card = card
+            .description(tr("settings.folder.missing"))
+            .description_color(Color::rgb(196, 43, 28));
+    }
+    card.content(remove)
 }
 
 /// Button that asks the settings model to open the system folder picker.

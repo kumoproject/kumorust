@@ -5,8 +5,8 @@ use std::path::Path;
 use kumo_contracts::ExecutableFingerprint;
 use sha2::{Digest, Sha256};
 
-/// Hashes the selected executable in a background task before it is sent to
-/// the server. The executable bytes never leave the local machine.
+/// Hashes an executable in a background task. Only its fingerprint is sent to
+/// the server; the executable bytes stay on the local machine.
 pub fn fingerprint(path: &Path) -> Result<ExecutableFingerprint, String> {
     let metadata =
         std::fs::metadata(path).map_err(|error| format!("读取 exe 信息失败：{error}"))?;

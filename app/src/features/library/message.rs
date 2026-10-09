@@ -1,5 +1,6 @@
-use crate::domain::folder::GameEntry;
+use crate::domain::folder::{GameEntry, RemoteGame};
 use kumo_contracts::{ExecutableFingerprint, GameMetadata};
+use std::collections::HashMap;
 use windows_reactor::ContentDialogResult;
 
 /// Library-specific events. Views only ever emit these (wrapped by the root
@@ -8,12 +9,11 @@ use windows_reactor::ContentDialogResult;
 pub enum LibraryMessage {
     /// Start (or restart) a scan of every indexed folder.
     Refresh,
+    RefreshPlayerCounts,
     /// Open the file picker for one executable.
     AddGame,
-    /// The file picker returned a candidate executable.
-    ExecutablePicked {
-        result: Result<Option<std::path::PathBuf>, String>,
-    },
+    /// The user selected one executable from the indexed paths.
+    SelectAddGame(Option<usize>),
     /// The selected executable was hashed in a background task.
     FingerprintReady {
         path: String,
@@ -33,12 +33,6 @@ pub enum LibraryMessage {
     SearchDlsite,
     DlsiteSearchFinished(Result<GameMetadata, String>),
     DialogClosed(ContentDialogResult),
-    /// The server accepted the manually entered metadata.
-    RegistrationFinished {
-        path: String,
-        fingerprint: ExecutableFingerprint,
-        result: Result<GameMetadata, String>,
-    },
     /// The local display entry was built after a server lookup or registration.
     GameCommitted {
         result: Result<GameEntry, String>,
@@ -48,11 +42,16 @@ pub enum LibraryMessage {
         generation: u64,
         games: Vec<GameEntry>,
         inspected: usize,
+        remote_games: Option<Result<Vec<RemoteGame>, String>>,
     },
+    AccountGamesUpdated(Result<Vec<RemoteGame>, String>),
+    PlayerCountsUpdated(Result<HashMap<String, u64>, String>),
     /// Launch a game executable in its own directory.
     Launch {
         path: String,
         directory: String,
+        fingerprint_hash: Option<String>,
+        activity_key: Option<String>,
     },
     /// A row was selected in the game list.
     Select(Option<usize>),

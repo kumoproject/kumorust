@@ -1,125 +1,89 @@
 use windows_reactor::*;
 
 use crate::app::{AppMessage, KumoApp};
-use crate::core::i18n::tr;
-use crate::domain::folder::GameEntry;
+use crate::core::i18n::{fmt1, tr};
+use crate::features::library::LibraryGame;
 use crate::features::library::LibraryMessage;
 use crate::ui::buttons::icon_content;
-use crate::ui::format::{format_age, format_size};
+use crate::ui::settings_card::SettingsCard;
 use crate::ui::tokens::{TEXT_SECONDARY, TEXT_TERTIARY};
 
-/// A single game row: icon, metadata, and a launch button.
-pub fn game_card(game: &GameEntry, cx: &ViewContext<KumoApp>) -> View {
-    let icon: View = match &game.icon_uri {
-        Some(uri) => match Image::new().source(uri.clone()) {
-            Ok(image) => image
-                .stretch(Stretch::Uniform)
-                .width(76.0)
-                .height(76.0)
-                .horizontal_alignment(HorizontalAlignment::Center)
-                .vertical_alignment(VerticalAlignment::Center)
-                .into(),
-            Err(_) => fallback_icon(),
-        },
-        None => fallback_icon(),
-    };
-    let icon_frame = Border::new()
-        .width(88.0)
-        .height(88.0)
-        .background(ThemeBrush::SolidBackground)
-        .corner_radius(8.0)
-        .padding(6.0)
-        .grid_column(0)
-        .content(icon);
-
+/// A library entry uses the shared settings row and only offers launch locally.
+pub fn game_card(game: &LibraryGame, player_count: Option<u64>, cx: &ViewContext<KumoApp>) -> View {
     let display_name = game
         .metadata
         .as_ref()
         .map(|metadata| metadata.title.clone())
         .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| game.name.clone());
-    let source_line = game
-        .metadata
+        .or_else(|| game.local.as_ref().map(|local| local.name.clone()))
+        .unwrap_or_else(|| tr("library.unknown_game").to_owned());
+
+    let mut details = Vec::new();
+    if let Some(metadata) = &game.metadata {
+        if let Some(maker) = metadata.maker.as_deref().filter(|maker| !maker.is_empty()) {
+            details.push(maker.to_owned());
+        }
+        if let Some(rj_code) = metadata.rj_code.as_deref().filter(|code| !code.is_empty()) {
+            details.push(rj_code.to_owned());
+        }
+    }
+    if let Some(local) = &game.local {
+        details.push(local.directory.clone());
+    } else {
+        details.push(tr("library.not_installed").to_owned());
+    }
+    if let Some(player_count) = player_count {
+        details.push(fmt1("library.players_online", player_count));
+    }
+
+    let icon: View = game
+        .local
         .as_ref()
-        .and_then(|metadata| {
-            let mut values = Vec::new();
-            if let Some(maker) = &metadata.maker {
-                if !maker.is_empty() {
-                    values.push(maker.clone());
-                }
-            }
-            if let Some(rj_code) = &metadata.rj_code {
-                values.push(rj_code.clone());
-            }
-            (!values.is_empty()).then(|| values.join(" · "))
+        .and_then(|local| local.icon_uri.as_deref())
+        .and_then(|uri| Image::new().source(uri.to_owned()).ok())
+        .map(|image| -> View {
+            image
+                .stretch(Stretch::Uniform)
+                .width(20.0)
+                .height(20.0)
+                .into()
         })
-        .unwrap_or_else(|| tr("library.game_type").to_string());
-    let details = Border::new()
-        .vertical_alignment(VerticalAlignment::Center)
-        .grid_column(1)
-        .content(
-            StackPanel::new().spacing(4.0).children((
-                TextBlock::new()
-                    .text(display_name)
-                    .font_size(18.0)
-                    .max_lines(1)
-                    .text_trimming(TextTrimming::CharacterEllipsis),
-                TextBlock::new()
-                    .text(source_line)
-                    .font_size(13.0)
-                    .foreground(TEXT_SECONDARY),
-                TextBlock::new()
-                    .text(format!(
-                        "{} · {} · {}",
-                        game.directory,
-                        format_size(game.size),
-                        format_age(game.modified)
-                    ))
-                    .font_size(12.0)
-                    .foreground(TEXT_TERTIARY)
-                    .max_lines(1)
-                    .text_trimming(TextTrimming::CharacterEllipsis),
-            )),
+        .unwrap_or_else(|| SymbolIcon::new().symbol(Symbol::Library).into());
+
+    let mut card = SettingsCard::new(display_name)
+        .description(details.join(" · "))
+        .description_color(if game.local.is_some() {
+            TEXT_SECONDARY
+        } else {
+            TEXT_TERTIARY
+        })
+        .header_icon(icon);
+
+    if let Some(local) = &game.local {
+        card = card.content(
+            Button::new()
+                .style(ButtonStyle::Accent)
+                .on_click(
+                    cx.message(AppMessage::Library(LibraryMessage::Launch {
+                        path: local.path.clone(),
+                        directory: local.directory.clone(),
+                        fingerprint_hash: (game.server_known
+                            || game
+                                .metadata
+                                .as_ref()
+                                .is_some_and(|metadata| metadata.rj_code.is_some()))
+                        .then(|| local.fingerprint.as_ref())
+                        .flatten()
+                        .map(|fingerprint| fingerprint.sha256.clone()),
+                        activity_key: game
+                            .metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.rj_code.clone()),
+                    })),
+                )
+                .content(icon_content(Symbol::Play, tr("library.launch"))),
         );
+    }
 
-    let path = game.path.clone();
-    let directory = game.directory.clone();
-    let launch = Button::new()
-        .style(ButtonStyle::Accent)
-        .on_click(cx.message(AppMessage::Library(LibraryMessage::Launch {
-            path,
-            directory,
-        })))
-        .grid_column(2)
-        .vertical_alignment(VerticalAlignment::Center)
-        .content(icon_content(Symbol::Play, tr("library.launch")));
-
-    Border::new()
-        .height(118.0)
-        .background(ThemeBrush::CardBackground)
-        .border_brush(ThemeBrush::CardStroke)
-        .border_thickness(Thickness::uniform(1.0))
-        .corner_radius(8.0)
-        .margin(Thickness::xy(0.0, 4.0))
-        .content(
-            Border::new().padding(Thickness::uniform(14.0)).content(
-                Grid::new()
-                    .columns([GridLength::Pixel(104.0), GridLength::STAR, GridLength::Auto])
-                    .column_spacing(16.0)
-                    .vertical_alignment(VerticalAlignment::Center)
-                    .children((icon_frame, details, launch)),
-            ),
-        )
-        .into()
-}
-
-/// The generic "game" glyph shown when no icon was cached.
-fn fallback_icon() -> View {
-    Viewbox::new()
-        .width(76.0)
-        .height(76.0)
-        .horizontal_alignment(HorizontalAlignment::Center)
-        .vertical_alignment(VerticalAlignment::Center)
-        .child(FontIcon::new().glyph("\u{E7FC}"))
-        .into()
+    card.into()
 }

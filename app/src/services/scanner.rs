@@ -10,6 +10,7 @@ use url::Url;
 use crate::core::config;
 use crate::core::i18n::tr;
 use crate::domain::folder::GameEntry;
+use crate::services::fingerprint;
 use crate::services::icon_extractor;
 
 pub struct ScanOutput {
@@ -75,6 +76,7 @@ pub fn game_entry_from_path(
     let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
     let icon_uri = cached_icon_uri(path, &metadata);
     let game_metadata = metadata_for_path(&path_text);
+    let executable_fingerprint = fingerprint::fingerprint(path).ok();
 
     Some(GameEntry {
         path: path_text,
@@ -84,6 +86,7 @@ pub fn game_entry_from_path(
         modified,
         icon_uri,
         metadata: game_metadata,
+        fingerprint: executable_fingerprint,
     })
 }
 

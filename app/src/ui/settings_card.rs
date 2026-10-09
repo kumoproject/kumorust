@@ -5,11 +5,12 @@ pub struct SettingsCard {
     header: String,
     header_icon: Option<View>,
     description: Option<String>,
+    description_color: Option<Color>,
     content: Option<View>,
     style: SettingsCardStyle,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum SettingsCardStyle {
     #[default]
     Default,
@@ -26,6 +27,11 @@ impl SettingsCard {
 
     pub fn description(mut self, value: impl Into<String>) -> Self {
         self.description = Some(value.into());
+        self
+    }
+
+    pub fn description_color(mut self, value: Color) -> Self {
+        self.description_color = Some(value);
         self
     }
 
@@ -57,6 +63,7 @@ fn render_card(card: SettingsCard) -> View {
         header,
         header_icon,
         description,
+        description_color,
         content,
         style,
     } = card;
@@ -91,14 +98,15 @@ fn render_card(card: SettingsCard) -> View {
 
     let mut detail_children: Vec<View> = vec![TextBlock::new().text(header).font_size(14.0).into()];
     if let Some(text) = description {
-        detail_children.push(
-            TextBlock::new()
-                .text(text)
-                .font_size(12.0)
-                .foreground(Color::rgb(120, 120, 120))
-                .text_wrapping(TextWrapping::Wrap)
-                .into(),
-        );
+        let mut description = TextBlock::new()
+            .text(text)
+            .font_size(12.0)
+            .foreground(description_color.unwrap_or(Color::rgb(120, 120, 120)))
+            .text_wrapping(TextWrapping::Wrap);
+        if style == SettingsCardStyle::ExpanderItem {
+            description = description.max_lines(2);
+        }
+        detail_children.push(description.into());
     }
 
     // Add the optional description only when it exists.

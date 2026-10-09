@@ -4,7 +4,7 @@ use crate::app::{AppMessage, KumoApp, Route};
 use crate::core::i18n::{fmt1, fmt2, fmt3, tr};
 use crate::features::library::components::game_card;
 use crate::features::library::{
-    AddGameDraft, AddGameStatus, LibraryMessage, LibraryModel, ScanStatus,
+    AddGameDialog, AddGameDraft, AddGameStatus, LibraryMessage, LibraryModel, ScanStatus,
 };
 use crate::features::settings::SettingsMessage;
 use crate::ui::buttons::icon_content;
@@ -75,7 +75,32 @@ pub fn view(
                 cx.callback(|index| AppMessage::Library(LibraryMessage::Select(index))),
             )
             .items(model.games.iter().map(|game| {
-                DataItem::new(game.path.clone(), &game.name).content(game_card(game, cx))
+                let key = game
+                    .local
+                    .as_ref()
+                    .map(|local| local.path.clone())
+                    .or_else(|| {
+                        game.metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.rj_code.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        game.metadata
+                            .as_ref()
+                            .map(|metadata| metadata.title.clone())
+                            .unwrap_or_default()
+                    });
+                let label = game
+                    .metadata
+                    .as_ref()
+                    .map(|metadata| metadata.title.as_str())
+                    .or_else(|| game.local.as_ref().map(|local| local.name.as_str()))
+                    .unwrap_or("");
+                let player_count = game
+                    .fingerprints
+                    .iter()
+                    .find_map(|fingerprint| model.player_counts.get(&fingerprint.sha256).copied());
+                DataItem::new(key, label).content(game_card(game, player_count, cx))
             }))
             .into()
     };
@@ -88,7 +113,7 @@ pub fn view(
     if let Some(draft) = &model.add_game {
         page_children.push(KeyedView::new(
             "add-game-dialog",
-            add_game_dialog(draft, cx),
+            add_game_dialog(draft, &model.scan, cx),
         ));
     }
 
@@ -228,7 +253,93 @@ fn add_game_button(cx: &ViewContext<KumoApp>) -> View {
         .into()
 }
 
-fn add_game_dialog(draft: &AddGameDraft, cx: &ViewContext<KumoApp>) -> View {
+fn add_game_dialog(dialog: &AddGameDialog, scan: &ScanStatus, cx: &ViewContext<KumoApp>) -> View {
+    match dialog {
+        AddGameDialog::Selecting {
+            candidates,
+            selected,
+        } => {
+            let items = candidates.iter().map(|game| {
+                DataItem::new(game.path.clone(), &game.name).content(
+                    StackPanel::new().spacing(2.0).children((
+                        TextBlock::new().text(game.name.clone()).font_size(14.0),
+                        TextBlock::new()
+                            .text(game.path.clone())
+                            .font_size(12.0)
+                            .foreground(TEXT_SECONDARY)
+                            .max_lines(1)
+                            .text_trimming(TextTrimming::CharacterEllipsis),
+                    )),
+                )
+            });
+            let has_selection = selected.is_some();
+            let picker_content: View = if candidates.is_empty() {
+                if matches!(scan, ScanStatus::Scanning { .. }) {
+                    StackPanel::new()
+                        .spacing(12.0)
+                        .horizontal_alignment(HorizontalAlignment::Center)
+                        .children((
+                            ProgressRing::new()
+                                .width(30.0)
+                                .height(30.0)
+                                .is_indeterminate(true)
+                                .is_active(true),
+                            TextBlock::new()
+                                .text(tr("library.scan.running"))
+                                .foreground(TEXT_SECONDARY),
+                        ))
+                        .into()
+                } else {
+                    TextBlock::new()
+                        .text(tr("library.add_game.no_executables"))
+                        .foreground(TEXT_SECONDARY)
+                        .into()
+                }
+            } else {
+                ListView::new()
+                    .selected_index(*selected)
+                    .on_selection_changed(cx.callback(|index| {
+                        AppMessage::Library(LibraryMessage::SelectAddGame(index))
+                    }))
+                    .items(items)
+                    .height(320.0)
+                    .into()
+            };
+            TextBlock::new()
+                .text("")
+                .content_dialog(
+                    ContentDialog::new()
+                        .title(tr("library.add_game.select_title"))
+                        .primary_button_text(tr("common.next"))
+                        .close_button_text(tr("common.cancel"))
+                        .is_primary_button_enabled(has_selection)
+                        .on_closed(cx.callback(|result| {
+                            AppMessage::Library(LibraryMessage::DialogClosed(result))
+                        }))
+                        .content(picker_content),
+                )
+                .into()
+        }
+        AddGameDialog::LookingUp => TextBlock::new()
+            .text("")
+            .content_dialog(
+                ContentDialog::new()
+                    .title(tr("library.add_game.lookup"))
+                    .close_button_text(tr("common.cancel"))
+                    .content(
+                        ProgressRing::new()
+                            .width(32.0)
+                            .height(32.0)
+                            .is_indeterminate(true)
+                            .is_active(true),
+                    ),
+            )
+            .into(),
+        AddGameDialog::Editing(draft) => add_game_metadata_dialog(draft, cx),
+    }
+}
+
+fn add_game_metadata_dialog(draft: &AddGameDraft, cx: &ViewContext<KumoApp>) -> View {
     let status = match &draft.status {
         AddGameStatus::LookingUp => tr("library.add_game.lookup").to_owned(),
         AddGameStatus::Editing => String::new(),
@@ -315,10 +426,7 @@ fn add_game_dialog(draft: &AddGameDraft, cx: &ViewContext<KumoApp>) -> View {
         .primary_button_text(tr("library.add_game.save"))
         .close_button_text(tr("common.cancel"))
         .is_primary_button_enabled(can_save)
-        .is_open(!matches!(
-            &draft.status,
-            AddGameStatus::LookingUp | AddGameStatus::Saving
-        ))
+        .is_open(true)
         .on_closed(cx.callback(|result| AppMessage::Library(LibraryMessage::DialogClosed(result))))
         .content(
             StackPanel::new()

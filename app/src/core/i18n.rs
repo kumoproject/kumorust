@@ -69,6 +69,39 @@ const STRINGS: &[(&str, &str, &str)] = &[
     // Navigation / page titles
     ("nav.library", "库", "Library"),
     ("nav.settings", "设置", "Settings"),
+    ("account.menu", "账号", "Account"),
+    ("account.login", "登录", "Sign in"),
+    ("account.logout", "登出", "Sign out"),
+    ("account.register", "注册", "Register"),
+    ("account.username", "用户名", "Username"),
+    ("account.password", "密码", "Password"),
+    (
+        "account.switch_to_register",
+        "创建新账号",
+        "Create an account",
+    ),
+    (
+        "account.switch_to_login",
+        "已有账号，去登录",
+        "I already have an account",
+    ),
+    (
+        "account.credentials_required",
+        "请输入用户名和密码",
+        "Enter a username and password",
+    ),
+    (
+        "account.username_invalid",
+        "用户名需为 3-32 位字母、数字、点、短横线或下划线",
+        "Use 3-32 letters, numbers, dots, dashes, or underscores",
+    ),
+    (
+        "account.password_invalid",
+        "密码长度需为 10-128 个字符",
+        "Password must be 10-128 characters",
+    ),
+    ("account.logging_in", "正在登录…", "Signing in…"),
+    ("account.registering", "正在创建账号…", "Creating account…"),
     ("tray.open", "启动主界面", "Open KumoRust"),
     ("tray.exit", "退出", "Exit"),
     (
@@ -146,9 +179,21 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "Rescan the library",
     ),
     ("library.launch", "启动", "Launch"),
+    ("library.players_online", "当前游玩 {}", "Playing now: {}"),
+    ("library.not_installed", "尚未安装", "Not installed"),
     ("library.game_type", "Windows 游戏", "Windows game"),
     ("library.unknown_game", "未知游戏", "Unknown game"),
     ("library.add_game.button", "添加游戏", "Add game"),
+    (
+        "library.add_game.select_title",
+        "选择索引中的游戏",
+        "Choose an indexed game",
+    ),
+    (
+        "library.add_game.no_executables",
+        "索引目录中没有可用的 exe",
+        "No executable files were found in indexed folders",
+    ),
     (
         "library.add_game.picker_title",
         "选择游戏 exe",
@@ -179,6 +224,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "正在保存游戏信息…",
         "Saving game information…",
     ),
+    (
+        "library.add_game.upload_queued",
+        "游戏已保存在本地，上传将在联网后重试：{}",
+        "Game saved locally. Upload will retry when online: {}",
+    ),
     ("library.add_game.title_label", "游戏标题", "Game title"),
     (
         "library.add_game.title_placeholder",
@@ -194,6 +244,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "library.add_game.rj_placeholder",
         "例如 RJ123456",
         "For example RJ123456",
+    ),
+    (
+        "library.add_game.invalid_rj",
+        "RJ 号格式无效，应为 RJ 后接至少 6 位数字",
+        "Enter RJ followed by at least 6 digits",
     ),
     ("library.add_game.search", "搜索", "Search"),
     ("library.add_game.save", "保存", "Save"),
@@ -229,6 +284,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "After adding a folder, its .exe files are scanned automatically",
     ),
     ("settings.folder", "索引文件夹", "Indexed folder"),
+    (
+        "settings.folder.missing",
+        "目录不存在，请检查路径或重新添加",
+        "Folder not found. Check the path or add it again.",
+    ),
     ("settings.remove_folder", "移除文件夹", "Remove folder"),
     ("settings.add_folder", "添加文件夹", "Add folder"),
     ("settings.updates", "应用更新", "App updates"),
@@ -254,6 +314,7 @@ const STRINGS: &[(&str, &str, &str)] = &[
     // Common / errors
     ("common.notice", "提示", "Notice"),
     ("common.cancel", "取消", "Cancel"),
+    ("common.next", "下一步", "Next"),
     (
         "folder_picker.title",
         "选择游戏库文件夹",

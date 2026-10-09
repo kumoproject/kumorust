@@ -2,7 +2,8 @@
 
 use std::time::SystemTime;
 
-use kumo_contracts::GameMetadata;
+use kumo_contracts::{ExecutableFingerprint, GameMetadata};
+use serde::{Deserialize, Serialize};
 
 /// A discovered game executable in the library.
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +15,14 @@ pub struct GameEntry {
     pub modified: SystemTime,
     pub icon_uri: Option<String>,
     pub metadata: Option<GameMetadata>,
+    pub fingerprint: Option<ExecutableFingerprint>,
+}
+
+/// A game stored in a user's server library, including every known executable.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RemoteGame {
+    pub fingerprints: Vec<ExecutableFingerprint>,
+    pub metadata: GameMetadata,
 }
 
 /// Whether `candidate` is already present in `folders` (case-insensitive,

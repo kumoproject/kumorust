@@ -1,5 +1,6 @@
-use crate::domain::folder::GameEntry;
+use crate::domain::folder::{GameEntry, RemoteGame};
 use kumo_contracts::{ExecutableFingerprint, GameMetadata};
+use std::collections::HashMap;
 
 /// State of the add-game dialog and its server-backed actions.
 #[derive(Clone, Debug, PartialEq)]
@@ -94,24 +95,98 @@ pub enum ScanStatus {
     },
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct LibraryGame {
+    pub local: Option<GameEntry>,
+    pub metadata: Option<GameMetadata>,
+    pub fingerprints: Vec<ExecutableFingerprint>,
+    pub server_known: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AddGameDialog {
+    Selecting {
+        candidates: Vec<GameEntry>,
+        selected: Option<usize>,
+    },
+    LookingUp,
+    Editing(AddGameDraft),
+}
+
 /// The library slice's model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibraryModel {
-    pub games: Vec<GameEntry>,
+    pub games: Vec<LibraryGame>,
+    pub local_games: Vec<GameEntry>,
+    pub remote_games: Vec<RemoteGame>,
+    pub player_counts: HashMap<String, u64>,
     pub scan: ScanStatus,
     pub scan_generation: u64,
     pub selected: Option<usize>,
-    pub add_game: Option<AddGameDraft>,
+    pub add_game: Option<AddGameDialog>,
 }
 
 impl LibraryModel {
-    pub fn new() -> Self {
+    pub fn new(remote_games: Vec<RemoteGame>) -> Self {
         Self {
-            games: Vec::new(),
+            games: merge_games(&[], &remote_games),
+            local_games: Vec::new(),
+            remote_games,
+            player_counts: HashMap::new(),
             scan: ScanStatus::Idle,
             scan_generation: 0,
             selected: None,
             add_game: None,
         }
     }
+}
+
+pub fn merge_games(local_games: &[GameEntry], remote_games: &[RemoteGame]) -> Vec<LibraryGame> {
+    let mut matched_paths = std::collections::HashSet::new();
+    let mut games = remote_games
+        .iter()
+        .map(|remote| {
+            let local = local_games.iter().find(|local| {
+                local.fingerprint.as_ref().is_some_and(|fingerprint| {
+                    remote
+                        .fingerprints
+                        .iter()
+                        .any(|candidate| candidate.sha256 == fingerprint.sha256)
+                })
+            });
+            if let Some(local) = local {
+                matched_paths.insert(local.path.to_ascii_lowercase());
+            }
+            LibraryGame {
+                local: local.cloned(),
+                metadata: Some(remote.metadata.clone()),
+                fingerprints: remote.fingerprints.clone(),
+                server_known: true,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    games.extend(
+        local_games
+            .iter()
+            .filter(|local| {
+                !matched_paths.contains(&local.path.to_ascii_lowercase())
+                    && local.metadata.is_some()
+            })
+            .map(|local| LibraryGame {
+                local: Some(local.clone()),
+                metadata: local.metadata.clone(),
+                fingerprints: Vec::new(),
+                server_known: false,
+            }),
+    );
+    games.sort_by_cached_key(|game| {
+        game.metadata
+            .as_ref()
+            .map(|metadata| metadata.title.as_str())
+            .or_else(|| game.local.as_ref().map(|local| local.name.as_str()))
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    });
+    games
 }
