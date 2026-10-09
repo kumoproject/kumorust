@@ -10,7 +10,7 @@ pub enum LibraryMessage {
     /// Start (or restart) a scan of every indexed folder.
     Refresh,
     RefreshPlayerCounts,
-    /// Open the file picker for one executable.
+    /// Open the indexed executable picker for one game.
     AddGame,
     /// The user selected one executable from the indexed paths.
     SelectAddGame(Option<usize>),
@@ -53,6 +53,4 @@ pub enum LibraryMessage {
         fingerprint_hash: Option<String>,
         activity_key: Option<String>,
     },
-    /// A row was selected in the game list.
-    Select(Option<usize>),
 }

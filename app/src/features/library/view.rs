@@ -69,40 +69,29 @@ pub fn view(
     let body: View = if model.games.is_empty() {
         empty_library_state(&model.scan, folders_empty, cx)
     } else {
-        ListView::new()
-            .selected_index(model.selected)
-            .on_selection_changed(
-                cx.callback(|index| AppMessage::Library(LibraryMessage::Select(index))),
-            )
-            .items(model.games.iter().map(|game| {
-                let key = game
-                    .local
-                    .as_ref()
-                    .map(|local| local.path.clone())
-                    .or_else(|| {
-                        game.metadata
-                            .as_ref()
-                            .and_then(|metadata| metadata.rj_code.clone())
-                    })
-                    .unwrap_or_else(|| {
-                        game.metadata
-                            .as_ref()
-                            .map(|metadata| metadata.title.clone())
-                            .unwrap_or_default()
-                    });
-                let label = game
-                    .metadata
-                    .as_ref()
-                    .map(|metadata| metadata.title.as_str())
-                    .or_else(|| game.local.as_ref().map(|local| local.name.as_str()))
-                    .unwrap_or("");
-                let player_count = game
-                    .fingerprints
-                    .iter()
-                    .find_map(|fingerprint| model.player_counts.get(&fingerprint.sha256).copied());
-                DataItem::new(key, label).content(game_card(game, player_count, cx))
-            }))
-            .into()
+        keyed_vstack(model.games.iter().map(|game| {
+            let key = game
+                .local
+                .as_ref()
+                .map(|local| local.path.clone())
+                .or_else(|| {
+                    game.metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.rj_code.clone())
+                })
+                .unwrap_or_else(|| {
+                    game.metadata
+                        .as_ref()
+                        .map(|metadata| metadata.title.clone())
+                        .unwrap_or_default()
+                });
+            let player_count = game
+                .fingerprints
+                .iter()
+                .find_map(|fingerprint| model.player_counts.get(&fingerprint.sha256).copied());
+            KeyedView::new(key, game_card(game, player_count, cx))
+        }))
+        .into()
     };
 
     let mut page_children = vec![KeyedView::new("header", header)];
@@ -313,6 +302,7 @@ fn add_game_dialog(dialog: &AddGameDialog, scan: &ScanStatus, cx: &ViewContext<K
                         .primary_button_text(tr("common.next"))
                         .close_button_text(tr("common.cancel"))
                         .is_primary_button_enabled(has_selection)
+                        .is_open(true)
                         .on_closed(cx.callback(|result| {
                             AppMessage::Library(LibraryMessage::DialogClosed(result))
                         }))
@@ -326,6 +316,7 @@ fn add_game_dialog(dialog: &AddGameDialog, scan: &ScanStatus, cx: &ViewContext<K
                 ContentDialog::new()
                     .title(tr("library.add_game.lookup"))
                     .close_button_text(tr("common.cancel"))
+                    .is_open(true)
                     .content(
                         ProgressRing::new()
                             .width(32.0)

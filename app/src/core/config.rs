@@ -41,6 +41,8 @@ struct SettingsFile {
     #[serde(default)]
     cached_account_games: Vec<RemoteGame>,
     #[serde(default)]
+    cached_local_games: Option<Vec<folder::GameEntry>>,
+    #[serde(default)]
     pending_game_uploads: Vec<PendingGameUpload>,
     #[serde(default)]
     anonymous_game_player_ids: HashMap<String, String>,
@@ -100,6 +102,21 @@ pub fn load_cached_account_games() -> Vec<RemoteGame> {
 pub fn save_cached_account_games(games: &[RemoteGame]) -> Result<()> {
     let mut settings = load_settings();
     settings.cached_account_games = games.to_vec();
+    save_settings(&settings)
+}
+
+pub fn load_cached_local_games() -> Option<Vec<folder::GameEntry>> {
+    load_settings().cached_local_games.map(|games| {
+        games
+            .into_iter()
+            .filter(|game| PathBuf::from(&game.path).is_file())
+            .collect()
+    })
+}
+
+pub fn save_cached_local_games(games: &[folder::GameEntry]) -> Result<()> {
+    let mut settings = load_settings();
+    settings.cached_local_games = Some(games.to_vec());
     save_settings(&settings)
 }
 

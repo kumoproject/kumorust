@@ -39,8 +39,14 @@ pub enum LibraryEffect {
     },
     SyncAccount {
         fingerprint_hashes: Vec<String>,
+        local_games: Vec<crate::domain::folder::GameEntry>,
     },
+    CacheLocalGames(Vec<crate::domain::folder::GameEntry>),
     CacheAccountGames(Vec<crate::domain::folder::RemoteGame>),
+    CacheLibrary {
+        local_games: Vec<crate::domain::folder::GameEntry>,
+        remote_games: Option<Vec<crate::domain::folder::RemoteGame>>,
+    },
     FetchPlayerCounts(Vec<String>),
     Notice(String),
 }
@@ -227,7 +233,6 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
         LibraryMessage::GameCommitted { result } => match result {
             Ok(game) => {
                 model.add_game = None;
-                let path = game.path.to_ascii_lowercase();
                 let fingerprint_hashes = game
                     .fingerprint
                     .as_ref()
@@ -243,15 +248,13 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                     model.local_games.push(game);
                 }
                 model.games = merge_games(&model.local_games, &model.remote_games);
-                model.selected = model.games.iter().position(|item| {
-                    item.local
-                        .as_ref()
-                        .is_some_and(|local| local.path.to_ascii_lowercase() == path)
-                });
                 if fingerprint_hashes.is_empty() {
-                    LibraryEffect::None
+                    LibraryEffect::CacheLocalGames(model.local_games.clone())
                 } else {
-                    LibraryEffect::SyncAccount { fingerprint_hashes }
+                    LibraryEffect::SyncAccount {
+                        fingerprint_hashes,
+                        local_games: model.local_games.clone(),
+                    }
                 }
             }
             Err(error) => LibraryEffect::Notice(error),
@@ -266,6 +269,7 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                 return LibraryEffect::None;
             }
             model.local_games = games;
+            model.local_cache_loaded = true;
             if let Some(AddGameDialog::Selecting {
                 candidates,
                 selected,
@@ -281,10 +285,10 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                         .position(|game| game.path.eq_ignore_ascii_case(&path))
                 });
             }
-            let cache_effect = match remote_games {
+            let cached_remote_games = match remote_games {
                 Some(Ok(games)) => {
                     model.remote_games = games.clone();
-                    Some(LibraryEffect::CacheAccountGames(games))
+                    Some(games)
                 }
                 Some(Err(_)) | None => None,
             };
@@ -294,7 +298,10 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                 found: model.games.len(),
                 finished_at: epoch_seconds(),
             };
-            cache_effect.unwrap_or(LibraryEffect::None)
+            LibraryEffect::CacheLibrary {
+                local_games: model.local_games.clone(),
+                remote_games: cached_remote_games,
+            }
         }
         LibraryMessage::AccountGamesUpdated(result) => match result {
             Ok(games) => {
@@ -320,10 +327,6 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
             fingerprint_hash,
             activity_key,
         },
-        LibraryMessage::Select(index) => {
-            model.selected = index;
-            LibraryEffect::None
-        }
     }
 }
 

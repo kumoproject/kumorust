@@ -6,7 +6,7 @@ use kumo_contracts::{ExecutableFingerprint, GameMetadata};
 use serde::{Deserialize, Serialize};
 
 /// A discovered game executable in the library.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GameEntry {
     pub path: String,
     pub name: String,

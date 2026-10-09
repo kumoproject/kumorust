@@ -122,20 +122,22 @@ pub struct LibraryModel {
     pub player_counts: HashMap<String, u64>,
     pub scan: ScanStatus,
     pub scan_generation: u64,
-    pub selected: Option<usize>,
+    pub local_cache_loaded: bool,
     pub add_game: Option<AddGameDialog>,
 }
 
 impl LibraryModel {
-    pub fn new(remote_games: Vec<RemoteGame>) -> Self {
+    pub fn new(local_games: Option<Vec<GameEntry>>, remote_games: Vec<RemoteGame>) -> Self {
+        let local_cache_loaded = local_games.is_some();
+        let local_games = local_games.unwrap_or_default();
         Self {
-            games: merge_games(&[], &remote_games),
-            local_games: Vec::new(),
+            games: merge_games(&local_games, &remote_games),
+            local_games,
             remote_games,
             player_counts: HashMap::new(),
             scan: ScanStatus::Idle,
             scan_generation: 0,
-            selected: None,
+            local_cache_loaded,
             add_game: None,
         }
     }

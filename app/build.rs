@@ -15,6 +15,7 @@ fn main() {
     reactor_runtime_guard::verify(WASDK_VERSION).unwrap_or_else(|error| panic!("{error}"));
     println!("cargo:rustc-env=KUMORUST_WASDK_VERSION={WASDK_VERSION}");
     println!("cargo:rerun-if-changed=assets/app.rc");
+    println!("cargo:rerun-if-changed=assets/app.manifest");
     println!("cargo:rerun-if-changed=assets/app.ico");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         winresource::WindowsResource::new()

@@ -330,12 +330,13 @@ pub struct AppModel {
 
 impl AppModel {
     pub fn new() -> Self {
+        let local_games = config::load_cached_local_games();
         let remote_games = config::load_cached_account_games();
         Self {
             route: Route::Library,
             pane_open: true,
             notice: String::new(),
-            library: LibraryModel::new(remote_games),
+            library: LibraryModel::new(local_games, remote_games),
             settings: SettingsModel::new(config::load_library_folders()),
             account: AccountModel::from_saved(config::load_account()),
         }
@@ -428,11 +429,17 @@ pub enum AppEffect {
     },
     AccountSignedIn(SavedAccount),
     AccountSignedOut(Option<String>),
+    CacheLocalGames(Vec<crate::domain::folder::GameEntry>),
     CacheAccountGames(Vec<crate::domain::folder::RemoteGame>),
+    CacheLibrary {
+        local_games: Vec<crate::domain::folder::GameEntry>,
+        remote_games: Option<Vec<crate::domain::folder::RemoteGame>>,
+    },
     FetchPlayerCounts(Vec<String>),
     SyncAccount {
         token: String,
         fingerprint_hashes: Vec<String>,
+        local_games: Vec<crate::domain::folder::GameEntry>,
     },
     GameUploadFinished {
         fingerprint_hash: String,
@@ -659,16 +666,29 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
             library::LibraryEffect::CommitKnown { path, metadata } => {
                 AppEffect::CommitGame { path, metadata }
             }
+            library::LibraryEffect::CacheLocalGames(games) => AppEffect::CacheLocalGames(games),
             library::LibraryEffect::CacheAccountGames(games) => AppEffect::CacheAccountGames(games),
-            library::LibraryEffect::SyncAccount { fingerprint_hashes } => model
-                .account
-                .token
-                .clone()
-                .map(|token| AppEffect::SyncAccount {
-                    token,
-                    fingerprint_hashes,
-                })
-                .unwrap_or(AppEffect::None),
+            library::LibraryEffect::CacheLibrary {
+                local_games,
+                remote_games,
+            } => AppEffect::CacheLibrary {
+                local_games,
+                remote_games,
+            },
+            library::LibraryEffect::SyncAccount {
+                fingerprint_hashes,
+                local_games,
+            } => {
+                if let Some(token) = model.account.token.clone() {
+                    AppEffect::SyncAccount {
+                        token,
+                        fingerprint_hashes,
+                        local_games,
+                    }
+                } else {
+                    AppEffect::CacheLocalGames(local_games)
+                }
+            }
             library::LibraryEffect::Notice(notice) => AppEffect::Notice(notice),
         },
         AppMessage::Settings(message) => match settings::update(&mut model.settings, message) {
@@ -693,7 +713,7 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
 
 /// The root MVU component.
 ///
-/// `create` initializes the model, then starts an initial library scan.
+/// `create` initializes the model from local cache and scans only when no cache exists.
 pub struct KumoApp {
     model: AppModel,
     state: Rc<AppState>,
@@ -710,15 +730,20 @@ impl Component for KumoApp {
         *input.0.window.borrow_mut() =
             OpenWindow::Open(context.sender().callback(|()| AppMessage::Activate));
         let app_icon_path = input.0.app_icon_path();
+        let model = AppModel::new();
         let _ = context.sender().send(AppMessage::WindowMounted);
-        let _ = context
-            .sender()
-            .send(AppMessage::Library(LibraryMessage::Refresh));
+        if !model.library.local_cache_loaded {
+            let _ = context
+                .sender()
+                .send(AppMessage::Library(LibraryMessage::Refresh));
+        } else {
+            context.spawn_background(move |_cancel| pending_uploads_task());
+        }
         let _ = context
             .sender()
             .send(AppMessage::Library(LibraryMessage::RefreshPlayerCounts));
         Self {
-            model: AppModel::new(),
+            model,
             state: Rc::clone(&input.0),
             app_icon_path,
             player_counts_timer: Some(context.set_timeout(
@@ -834,7 +859,6 @@ pub fn view(
 
     let title_bar = TitleBar::new()
         .preferred_height(WindowTitleBarHeight::Standard)
-        .height(48.0)
         .title("KumoRust")
         .icon(Icon::image_data(EncodedImage::from_static(APP_ICON_BYTES)))
         .is_pane_toggle_button_visible(true)
@@ -863,6 +887,11 @@ fn account_menu_button(model: &AppModel, context: &ViewContext<KumoApp>) -> View
     let logged_in = model.account.token.is_some();
     Button::new()
         .style(ButtonStyle::Subtle)
+        .width(40.0)
+        .height(32.0)
+        .margin(Thickness::new(0.0, 0.0, 8.0, 0.0))
+        .horizontal_content_alignment(HorizontalAlignment::Center)
+        .vertical_content_alignment(VerticalAlignment::Center)
         .content(SymbolIcon::new().symbol(Symbol::Account))
         .tooltip(tr("account.menu"))
         .menu(Menu::new(
@@ -939,6 +968,7 @@ fn account_dialog(dialog: &AuthDialog, context: &ViewContext<KumoApp>) -> View {
             .primary_button_text(primary)
             .close_button_text(tr("common.cancel"))
             .is_primary_button_enabled(!dialog.busy)
+            .is_open(true)
             .on_closed(context.callback(AppMessage::AccountDialogClosed))
             .content(
                 StackPanel::new()
@@ -1115,6 +1145,33 @@ where
                 });
             }
         }
+        AppEffect::CacheLocalGames(games) => {
+            if let Err(error) = config::save_cached_local_games(&games) {
+                let _ = context
+                    .sender()
+                    .send(AppMessage::Notice(fmt1("error.save_failed", error)));
+            }
+        }
+        AppEffect::CacheLibrary {
+            local_games,
+            remote_games,
+        } => {
+            if let Err(error) = config::save_cached_local_games(&local_games) {
+                let _ = context
+                    .sender()
+                    .send(AppMessage::Notice(fmt1("error.save_failed", error)));
+            }
+            if let Some(games) = remote_games
+                && let Err(error) = config::save_cached_account_games(&games)
+            {
+                let _ = context
+                    .sender()
+                    .send(AppMessage::Notice(fmt1("error.save_failed", error)));
+            }
+            let _ = context
+                .sender()
+                .send(AppMessage::Library(LibraryMessage::RefreshPlayerCounts));
+        }
         AppEffect::CacheAccountGames(games) => {
             if let Err(error) = config::save_cached_account_games(&games) {
                 let _ = context
@@ -1135,7 +1192,13 @@ where
         AppEffect::SyncAccount {
             token,
             fingerprint_hashes,
+            local_games,
         } => {
+            if let Err(error) = config::save_cached_local_games(&local_games) {
+                let _ = context
+                    .sender()
+                    .send(AppMessage::Notice(fmt1("error.save_failed", error)));
+            }
             context.spawn_background(move |_cancel| {
                 AppMessage::Library(LibraryMessage::AccountGamesUpdated(
                     api::sync_account_games(&token, fingerprint_hashes),
