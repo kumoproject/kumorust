@@ -82,7 +82,7 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
         }
         LibraryMessage::AddGame => {
             model.add_game = Some(AddGameDialog::Selecting {
-                candidates: model.local_games.clone(),
+                candidates: add_game_candidates(model),
                 selected: None,
             });
             LibraryEffect::None
@@ -270,21 +270,6 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
             }
             model.local_games = games;
             model.local_cache_loaded = true;
-            if let Some(AddGameDialog::Selecting {
-                candidates,
-                selected,
-            }) = model.add_game.as_mut()
-            {
-                let selected_path = selected
-                    .and_then(|index| candidates.get(index))
-                    .map(|game| game.path.to_ascii_lowercase());
-                *candidates = model.local_games.clone();
-                *selected = selected_path.and_then(|path| {
-                    candidates
-                        .iter()
-                        .position(|game| game.path.eq_ignore_ascii_case(&path))
-                });
-            }
             let cached_remote_games = match remote_games {
                 Some(Ok(games)) => {
                     model.remote_games = games.clone();
@@ -293,6 +278,7 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                 Some(Err(_)) | None => None,
             };
             model.games = merge_games(&model.local_games, &model.remote_games);
+            refresh_add_game_candidates(model);
             model.scan = ScanStatus::Complete {
                 inspected,
                 found: model.games.len(),
@@ -307,6 +293,7 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
             Ok(games) => {
                 model.remote_games = games.clone();
                 model.games = merge_games(&model.local_games, &model.remote_games);
+                refresh_add_game_candidates(model);
                 LibraryEffect::CacheAccountGames(games)
             }
             Err(error) => LibraryEffect::Notice(error),
@@ -335,6 +322,45 @@ fn update_draft(model: &mut LibraryModel, update: impl FnOnce(&mut AddGameDraft)
         update(draft);
     }
     LibraryEffect::None
+}
+
+fn add_game_candidates(model: &LibraryModel) -> Vec<crate::domain::folder::GameEntry> {
+    model
+        .local_games
+        .iter()
+        .filter(|candidate| {
+            !model.games.iter().any(|game| {
+                game.local
+                    .as_ref()
+                    .is_some_and(|local| local.path.eq_ignore_ascii_case(&candidate.path))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+fn refresh_add_game_candidates(model: &mut LibraryModel) {
+    let selected_path = match model.add_game.as_ref() {
+        Some(AddGameDialog::Selecting {
+            candidates,
+            selected: Some(index),
+        }) => candidates.get(*index).map(|game| game.path.clone()),
+        _ => None,
+    };
+    let candidates = add_game_candidates(model);
+
+    if let Some(AddGameDialog::Selecting {
+        candidates: current_candidates,
+        selected,
+    }) = model.add_game.as_mut()
+    {
+        *current_candidates = candidates;
+        *selected = selected_path.and_then(|path| {
+            current_candidates
+                .iter()
+                .position(|game| game.path.eq_ignore_ascii_case(&path))
+        });
+    }
 }
 
 fn valid_rj_code(value: &str) -> bool {

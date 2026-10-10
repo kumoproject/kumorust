@@ -1,7 +1,7 @@
 use windows_reactor::*;
 
 use crate::app::{AppMessage, KumoApp};
-use crate::core::i18n::{fmt1, tr};
+use crate::core::i18n::tr;
 use crate::features::library::LibraryGame;
 use crate::features::library::LibraryMessage;
 use crate::ui::buttons::icon_content;
@@ -9,7 +9,7 @@ use crate::ui::settings_card::SettingsCard;
 use crate::ui::tokens::{TEXT_SECONDARY, TEXT_TERTIARY};
 
 /// A library entry uses the shared settings row and only offers launch locally.
-pub fn game_card(game: &LibraryGame, player_count: Option<u64>, cx: &ViewContext<KumoApp>) -> View {
+pub fn game_card(game: &LibraryGame, cx: &ViewContext<KumoApp>) -> View {
     let display_name = game
         .metadata
         .as_ref()
@@ -32,10 +32,6 @@ pub fn game_card(game: &LibraryGame, player_count: Option<u64>, cx: &ViewContext
     } else {
         details.push(tr("library.not_installed").to_owned());
     }
-    if let Some(player_count) = player_count {
-        details.push(fmt1("library.players_online", player_count));
-    }
-
     let icon: View = game
         .local
         .as_ref()
@@ -52,6 +48,7 @@ pub fn game_card(game: &LibraryGame, player_count: Option<u64>, cx: &ViewContext
 
     let mut card = SettingsCard::new(display_name)
         .description(details.join(" · "))
+        .description_no_wrap()
         .description_color(if game.local.is_some() {
             TEXT_SECONDARY
         } else {

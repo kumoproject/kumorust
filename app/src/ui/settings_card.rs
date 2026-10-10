@@ -6,6 +6,7 @@ pub struct SettingsCard {
     header_icon: Option<View>,
     description: Option<String>,
     description_color: Option<Color>,
+    description_no_wrap: bool,
     content: Option<View>,
     style: SettingsCardStyle,
 }
@@ -32,6 +33,12 @@ impl SettingsCard {
 
     pub fn description_color(mut self, value: Color) -> Self {
         self.description_color = Some(value);
+        self
+    }
+
+    /// Keeps the description on one line and trims it when the card is narrow.
+    pub fn description_no_wrap(mut self) -> Self {
+        self.description_no_wrap = true;
         self
     }
 
@@ -64,6 +71,7 @@ fn render_card(card: SettingsCard) -> View {
         header_icon,
         description,
         description_color,
+        description_no_wrap,
         content,
         style,
     } = card;
@@ -101,9 +109,15 @@ fn render_card(card: SettingsCard) -> View {
         let mut description = TextBlock::new()
             .text(text)
             .font_size(12.0)
-            .foreground(description_color.unwrap_or(Color::rgb(120, 120, 120)))
-            .text_wrapping(TextWrapping::Wrap);
-        if style == SettingsCardStyle::ExpanderItem {
+            .foreground(description_color.unwrap_or(Color::rgb(120, 120, 120)));
+        if description_no_wrap {
+            description = description
+                .text_wrapping(TextWrapping::NoWrap)
+                .text_trimming(TextTrimming::CharacterEllipsis);
+        } else {
+            description = description.text_wrapping(TextWrapping::Wrap);
+        }
+        if style == SettingsCardStyle::ExpanderItem && !description_no_wrap {
             description = description.max_lines(2);
         }
         detail_children.push(description.into());

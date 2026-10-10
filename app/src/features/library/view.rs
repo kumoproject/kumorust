@@ -85,11 +85,7 @@ pub fn view(
                         .map(|metadata| metadata.title.clone())
                         .unwrap_or_default()
                 });
-            let player_count = game
-                .fingerprints
-                .iter()
-                .find_map(|fingerprint| model.player_counts.get(&fingerprint.sha256).copied());
-            KeyedView::new(key, game_card(game, player_count, cx))
+            KeyedView::new(key, game_card(game, cx))
         }))
         .into()
     };

@@ -859,6 +859,7 @@ pub fn view(
 
     let title_bar = TitleBar::new()
         .preferred_height(WindowTitleBarHeight::Standard)
+        .height(48.0)
         .title("KumoRust")
         .icon(Icon::image_data(EncodedImage::from_static(APP_ICON_BYTES)))
         .is_pane_toggle_button_visible(true)
@@ -889,10 +890,9 @@ fn account_menu_button(model: &AppModel, context: &ViewContext<KumoApp>) -> View
         .style(ButtonStyle::Subtle)
         .width(40.0)
         .height(32.0)
-        .margin(Thickness::new(0.0, 0.0, 8.0, 0.0))
         .horizontal_content_alignment(HorizontalAlignment::Center)
         .vertical_content_alignment(VerticalAlignment::Center)
-        .content(SymbolIcon::new().symbol(Symbol::Account))
+        .content(SymbolIcon::new().symbol(Symbol::Contact))
         .tooltip(tr("account.menu"))
         .menu(Menu::new(
             [
