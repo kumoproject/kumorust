@@ -157,7 +157,7 @@ fn empty_library_state(
                 .width(38.0)
                 .height(38.0)
                 .horizontal_alignment(HorizontalAlignment::Center)
-                .child(FontIcon::new().glyph(glyph))
+                .content(FontIcon::new().glyph(glyph))
                 .into(),
         );
     }

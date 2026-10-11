@@ -12,7 +12,7 @@ use single_instance::SingleInstance;
 use windows::core::{Error, HRESULT};
 use windows_reactor::App;
 
-use crate::app::AppState;
+use crate::app::{KumoApplication, KumoApplicationInput};
 use crate::platform::window;
 use crate::services::setup;
 
@@ -43,22 +43,9 @@ fn main() -> windows::core::Result<()> {
     if let Err(error) = setup::ensure_runtime() {
         eprintln!("Windows App SDK runtime 安装失败：{error}");
     }
-    App::run_with(move |app| {
-        let state = AppState::new(app.clone());
-        if let Err(error) = state.start_activation_listener() {
-            eprintln!("could not start the main-instance activation listener: {error}");
-        }
-        let tray_available = match state.add_icon() {
-            Ok(()) => true,
-            Err(error) => {
-                eprintln!("could not add notification icon: {error}");
-                false
-            }
-        };
-        if !options.silent || !tray_available {
-            state.open_window()?;
-        }
-        Ok(state)
+    let app_icon = crate::app::AppIcon::new()?;
+    App::run_application::<KumoApplication>(KumoApplicationInput {
+        silent: options.silent,
+        app_icon,
     })
-    .map_err(|error| Error::new(HRESULT(error.code().0), error.message()))
 }

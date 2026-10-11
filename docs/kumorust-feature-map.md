@@ -241,10 +241,10 @@ flowchart LR
 - 第二次启动不会打开第二个窗口，而是查找主窗口并恢复、置前。
 - 主窗口使用 WinUI 3 / `windows-reactor`，Mica backdrop，最小尺寸为 800x600。
 - 自定义标题栏包含导航 pane 的开关。
-- 主窗口关闭后销毁当前 Reactor component；托盘和 AppState 继续运行，之后可通过“启动主界面”重新创建或激活窗口。
-- 托盘“退出”菜单结束进程；没有托盘时关闭主窗口会直接退出。
-- 托盘由 `windows-notifyicon` 管理隐藏窗口、Shell 恢复和事件分发；菜单交给 `windows-reactor` 显示。
-- 托盘初始化失败不会阻止主窗口继续工作；没有托盘时关闭主窗口会直接退出。
+- 主窗口关闭后销毁当前 Reactor component；托盘和 `KumoApplication` 继续运行，之后可通过托盘重新创建或激活窗口。
+- 托盘“退出”菜单结束进程。
+- 托盘图标、Shell 恢复和事件分发由 `windows-reactor` 的 `ApplicationView` 管理；菜单通过应用上下文回调显示。
+- 托盘初始化失败会作为应用启动错误返回。
 
 ## 6. 架构地图
 
@@ -252,7 +252,7 @@ flowchart LR
 main.rs
   -> 单实例
   -> services::setup::ensure_runtime
-  -> windows_reactor::App::run_with (AppState + windows-notifyicon)
+  -> windows_reactor::App::run_application (KumoApplication + ApplicationView)
 
 app.rs
   -> AppModel / AppMessage / AppEffect

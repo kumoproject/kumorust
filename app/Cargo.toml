@@ -31,7 +31,6 @@ windows = { workspace = true, features = [
     "winreg",
     "winuser",
 ] }
-windows-notifyicon = { workspace = true }
 windows-pickers = { workspace = true, features = ["reactor"] }
 windows-reactor = { workspace = true }
 

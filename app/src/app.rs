@@ -6,14 +6,11 @@
 //! to each slice's own pure reducer. Side effects requested by any reducer are
 //! collected into [`AppEffect`] and executed by [`perform`].
 
-use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::Duration;
 
 use windows::core::{Error, HRESULT};
-use windows_notifyicon::{NotifyIcon, NotifyIconEvent};
 use windows_reactor::*;
 
 use crate::core::config;
@@ -30,182 +27,28 @@ const APP_ICON_BYTES: &[u8] = include_bytes!("../assets/app.ico");
 const PLAYER_COUNT_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const GAME_ACTIVITY_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Owns the application-lifetime objects that outlive the main component.
-///
-/// The notification icon is created on the Reactor UI thread and kept alive by
-/// the `App::run_with` resource. The main component can therefore be closed
-/// and opened again without recreating the tray integration.
-pub(crate) struct AppState {
-    app: AppContext,
-    icon: RefCell<Option<NotifyIcon>>,
-    app_icon: RefCell<Option<AppIcon>>,
-    window: RefCell<OpenWindow>,
-    activation_listener: RefCell<Option<window::ActivationListener>>,
-}
-
-struct AppIcon {
+pub(crate) struct AppIcon {
     path: PathBuf,
     path_string: &'static str,
 }
 
-enum OpenWindow {
-    Closed,
-    Opening,
-    Open(Callback<()>),
-}
-
 #[derive(Clone)]
-pub struct KumoAppInput(Rc<AppState>);
+pub struct KumoAppInput {
+    app_icon_path: &'static str,
+}
 
 impl PartialEq for KumoAppInput {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl AppState {
-    pub(crate) fn new(app: AppContext) -> Rc<Self> {
-        Rc::new(Self {
-            app,
-            icon: RefCell::new(None),
-            app_icon: RefCell::new(None),
-            window: RefCell::new(OpenWindow::Closed),
-            activation_listener: RefCell::new(None),
-        })
-    }
-
-    pub(crate) fn start_activation_listener(self: &Rc<Self>) -> windows::core::Result<()> {
-        let events = Rc::downgrade(self);
-        let callback = self.app.callback(move || {
-            let Some(state) = events.upgrade() else {
-                return Ok(());
-            };
-            state.open_window()
-        });
-        let listener = window::ActivationListener::start(callback)?;
-        *self.activation_listener.borrow_mut() = Some(listener);
-        Ok(())
-    }
-
-    pub(crate) fn add_icon(self: &Rc<Self>) -> windows_notifyicon::Result<()> {
-        let events = Rc::downgrade(self);
-        let path = app_icon_path("tray")?;
-        let result = NotifyIcon::new(path.clone())
-            .tooltip(TRAY_TOOLTIP)
-            .on_event(move |event| {
-                let Some(state) = events.upgrade() else {
-                    return;
-                };
-                match event {
-                    NotifyIconEvent::Activate { .. } => {
-                        let _ = window::activate_existing_main_window();
-                        if let Err(error) = state.open_window() {
-                            eprintln!("could not open KumoRust window: {error}");
-                        }
-                    }
-                    NotifyIconEvent::ContextMenu { position } => state.show_menu(position),
-                    NotifyIconEvent::Unavailable => {
-                        eprintln!("the Windows Shell could not restore the notification icon");
-                        state.exit();
-                    }
-                    _ => {}
-                }
-            })
-            .build();
-        let _ = std::fs::remove_file(path);
-        *self.icon.borrow_mut() = Some(result?);
-        Ok(())
-    }
-
-    fn ensure_app_icon(&self) -> windows_notifyicon::Result<()> {
-        if self.app_icon.borrow().is_none() {
-            *self.app_icon.borrow_mut() = Some(AppIcon::new()?);
-        }
-        Ok(())
-    }
-
-    fn app_icon_path(&self) -> &'static str {
-        self.app_icon
-            .borrow()
-            .as_ref()
-            .expect("application icon should be prepared")
-            .path_string
-    }
-
-    fn release_app_icon(&self) {
-        self.app_icon.borrow_mut().take();
-    }
-
-    fn show_menu(self: &Rc<Self>, position: windows_notifyicon::Point) {
-        let state = Rc::clone(self);
-        let open = Key::from("open");
-        let exit = Key::from("exit");
-        let menu = Menu::new(
-            [
-                MenuItem::item(open.clone(), tr("tray.open")),
-                MenuItem::item(exit.clone(), tr("tray.exit")),
-            ],
-            move |key| {
-                if key == open {
-                    if let Err(error) = state.open_window() {
-                        eprintln!("could not open KumoRust window: {error}");
-                    }
-                } else if key == exit {
-                    state.exit();
-                }
-            },
-        );
-        if let Err(error) = self
-            .app
-            .show_menu_at(ScreenPoint::new(position.x, position.y), menu)
-        {
-            eprintln!("could not show notification icon menu: {error}");
-        }
-    }
-
-    pub(crate) fn open_window(self: &Rc<Self>) -> windows::core::Result<()> {
-        if matches!(&*self.window.borrow(), OpenWindow::Closed) {
-            self.ensure_app_icon()?;
-        }
-        let activate = {
-            let mut window = self.window.borrow_mut();
-            match &*window {
-                OpenWindow::Closed => {
-                    *window = OpenWindow::Opening;
-                    None
-                }
-                OpenWindow::Opening => return Ok(()),
-                OpenWindow::Open(activate) => Some(activate.clone()),
-            }
-        };
-        if let Some(activate) = activate {
-            activate.call(());
-            return Ok(());
-        }
-
-        if let Err(error) = self
-            .app
-            .open_component_window::<KumoApp>(KumoAppInput(Rc::clone(self)))
-        {
-            *self.window.borrow_mut() = OpenWindow::Closed;
-            self.release_app_icon();
-            return Err(error);
-        }
-        Ok(())
-    }
-
-    fn exit(&self) {
-        if let Err(error) = self.app.exit() {
-            eprintln!("could not exit KumoRust: {error}");
-        }
+        self.app_icon_path == other.app_icon_path
     }
 }
 
 impl AppIcon {
-    fn new() -> windows_notifyicon::Result<Self> {
-        let path = app_icon_path("window")?;
+    pub(crate) fn new() -> windows::core::Result<Self> {
+        let path = app_icon_path()?;
         // WindowVisuals stores the path as a static string; keep this small string alive for the
-        // duration of the process while AppIcon owns the file itself.
+        // duration of the process while AppIcon owns the file itself. The same path is also used
+        // by the application-owned notification icon.
         let path_string = Box::leak(path.to_string_lossy().into_owned().into_boxed_str());
         Ok(Self { path, path_string })
     }
@@ -217,10 +60,10 @@ impl Drop for AppIcon {
     }
 }
 
-fn app_icon_path(kind: &str) -> windows_notifyicon::Result<PathBuf> {
+fn app_icon_path() -> windows::core::Result<PathBuf> {
     // Both the window and notification icon APIs accept a path, while the application icon is
     // embedded in the binary.
-    let path = std::env::temp_dir().join(format!("KumoRust-{kind}-{}.ico", std::process::id()));
+    let path = std::env::temp_dir().join(format!("KumoRust-{}.ico", std::process::id()));
     std::fs::write(&path, APP_ICON_BYTES).map_err(|error| {
         Error::new(
             HRESULT(0x8000_4005_u32 as i32),
@@ -228,6 +71,75 @@ fn app_icon_path(kind: &str) -> windows_notifyicon::Result<PathBuf> {
         )
     })?;
     Ok(path)
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ApplicationMessage {
+    Open,
+    Menu(Key),
+}
+
+pub(crate) struct KumoApplicationInput {
+    pub(crate) silent: bool,
+    pub(crate) app_icon: AppIcon,
+}
+
+pub(crate) struct KumoApplication {
+    app_icon_path: &'static str,
+}
+
+impl Application for KumoApplication {
+    type Input = KumoApplicationInput;
+    type Message = ApplicationMessage;
+
+    fn create(input: &Self::Input, context: &ApplicationContext<Self>) -> Self {
+        if !input.silent {
+            context.show_window("main");
+        }
+        Self {
+            app_icon_path: input.app_icon.path_string,
+        }
+    }
+
+    fn update(&mut self, message: Self::Message, context: &ApplicationContext<Self>) {
+        match message {
+            ApplicationMessage::Open => context.show_window("main"),
+            ApplicationMessage::Menu(key) => match key.as_str() {
+                Some("open") => context.show_window("main"),
+                Some("exit") => context.exit(),
+                _ => {}
+            },
+        }
+    }
+
+    fn view(
+        &self,
+        _input: &Self::Input,
+        context: &ApplicationViewContext<Self>,
+    ) -> ApplicationView {
+        let open = Key::from("open");
+        let exit = Key::from("exit");
+        ApplicationView::new()
+            .window::<KumoApp>(
+                "main",
+                KumoAppInput {
+                    app_icon_path: self.app_icon_path,
+                },
+            )
+            .notify_icon(
+                "tray",
+                NotifyIcon::new(self.app_icon_path)
+                    .tooltip(TRAY_TOOLTIP)
+                    .on_activate(context.callback(|_| ApplicationMessage::Open))
+                    .menu(Menu::new(
+                        [
+                            MenuItem::item(open, tr("tray.open")),
+                            MenuItem::item(exit, tr("tray.exit")),
+                        ],
+                        context.callback(ApplicationMessage::Menu),
+                    )),
+            )
+    }
 }
 
 /// Top-level navigation route.
@@ -348,12 +260,6 @@ impl AppModel {
 /// forwarded to the matching reducer.
 #[derive(Clone, Debug)]
 pub enum AppMessage {
-    /// Activates the existing main window after an external open request.
-    Activate,
-    /// Completes the native activation fallback queued for an external request.
-    ActivationCompleted,
-    /// Releases the temporary icon after the initial window has been mounted.
-    WindowMounted,
     /// Switch the navigation pane to another route.
     RouteChanged(Route),
     /// The user picked an item in the navigation pane.
@@ -481,9 +387,6 @@ pub enum AppEffect {
 /// translates slice effects into root effects.
 pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
     match message {
-        AppMessage::Activate => AppEffect::None,
-        AppMessage::ActivationCompleted => AppEffect::None,
-        AppMessage::WindowMounted => AppEffect::None,
         AppMessage::RouteChanged(route) => {
             model.route = route;
             AppEffect::None
@@ -716,7 +619,6 @@ pub fn update(model: &mut AppModel, message: AppMessage) -> AppEffect {
 /// `create` initializes the model from local cache and scans only when no cache exists.
 pub struct KumoApp {
     model: AppModel,
-    state: Rc<AppState>,
     app_icon_path: &'static str,
     player_counts_timer: Option<ComponentTimer>,
 }
@@ -726,12 +628,7 @@ impl Component for KumoApp {
     type Input = KumoAppInput;
 
     fn create(input: &KumoAppInput, context: &ComponentContext<Self>) -> Self {
-        // Tray and duplicate-instance requests enter through the component's own queue.
-        *input.0.window.borrow_mut() =
-            OpenWindow::Open(context.sender().callback(|()| AppMessage::Activate));
-        let app_icon_path = input.0.app_icon_path();
         let model = AppModel::new();
-        let _ = context.sender().send(AppMessage::WindowMounted);
         if !model.library.local_cache_loaded {
             let _ = context
                 .sender()
@@ -744,8 +641,7 @@ impl Component for KumoApp {
             .send(AppMessage::Library(LibraryMessage::RefreshPlayerCounts));
         Self {
             model,
-            state: Rc::clone(&input.0),
-            app_icon_path,
+            app_icon_path: input.app_icon_path,
             player_counts_timer: Some(context.set_timeout(
                 PLAYER_COUNT_REFRESH_INTERVAL,
                 AppMessage::Library(LibraryMessage::RefreshPlayerCounts),
@@ -754,8 +650,6 @@ impl Component for KumoApp {
     }
 
     fn update(&mut self, message: AppMessage, context: &ComponentContext<Self>) {
-        let activate = matches!(&message, &AppMessage::Activate);
-        let mounted = matches!(&message, &AppMessage::WindowMounted);
         let refresh_player_counts = matches!(
             &message,
             AppMessage::Library(LibraryMessage::RefreshPlayerCounts)
@@ -767,35 +661,11 @@ impl Component for KumoApp {
                 AppMessage::Library(LibraryMessage::RefreshPlayerCounts),
             ));
         }
-        if mounted {
-            self.state.release_app_icon();
-        }
-        if activate {
-            let reactor_accepted = context.activate_window();
-            let foreground_accepted = context.run_window(|window_handle| {
-                window::activate_window_handle(window_handle.as_raw());
-                AppMessage::ActivationCompleted
-            });
-            if !reactor_accepted && !foreground_accepted {
-                eprintln!("could not activate KumoRust window");
-            }
-        } else {
-            perform(effect, context);
-        }
+        perform(effect, context);
     }
 
     fn view(&self, _input: &KumoAppInput, context: &mut ViewContext<Self>) -> View {
         view(&self.model, self.app_icon_path, context)
-    }
-}
-
-impl Drop for KumoApp {
-    fn drop(&mut self) {
-        self.state.release_app_icon();
-        *self.state.window.borrow_mut() = OpenWindow::Closed;
-        if self.state.icon.borrow().is_none() {
-            self.state.exit();
-        }
     }
 }
 
