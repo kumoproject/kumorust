@@ -195,6 +195,11 @@ const STRINGS: &[(&str, &str, &str)] = &[
         "No executable files were found in indexed folders",
     ),
     (
+        "library.add_game.already_added",
+        "已在游戏库中",
+        "Already in library",
+    ),
+    (
         "library.add_game.picker_title",
         "选择游戏 exe",
         "Choose a game executable",

@@ -3,15 +3,16 @@ use windows_reactor::*;
 use crate::app::{AppMessage, KumoApp, Route};
 use crate::core::i18n::{fmt1, fmt2, fmt3, tr};
 use crate::features::library::components::game_card;
+use crate::features::library::model::is_game_in_library;
 use crate::features::library::{
-    AddGameDialog, AddGameDraft, AddGameStatus, LibraryMessage, LibraryModel, ScanStatus,
+    AddGameDialog, AddGameDraft, AddGameStatus, LibraryGame, LibraryMessage, LibraryModel,
+    ScanStatus,
 };
-use crate::features::settings::SettingsMessage;
 use crate::ui::buttons::icon_content;
 use crate::ui::format::format_epoch_age;
 use crate::ui::info_bar::info_bar;
 use crate::ui::layout::keyed_vstack;
-use crate::ui::tokens::{TEXT_SECONDARY, body, subtitle, title};
+use crate::ui::tokens::{TEXT_SECONDARY, TEXT_TERTIARY, body, subtitle, title};
 
 /// Renders the library page from the library model.
 ///
@@ -29,7 +30,6 @@ pub fn view(
         .rows([GridLength::Auto, GridLength::Auto])
         .columns([
             GridLength::STAR,
-            GridLength::Auto,
             GridLength::Auto,
             GridLength::Auto,
             GridLength::Auto,
@@ -58,10 +58,6 @@ pub fn view(
                 .content(refresh_button(cx)),
             Border::new()
                 .grid_column(3)
-                .grid_row_span(2)
-                .content(add_folder_button(cx)),
-            Border::new()
-                .grid_column(4)
                 .grid_row_span(2)
                 .content(add_game_button(cx)),
         ));
@@ -98,7 +94,7 @@ pub fn view(
     if let Some(draft) = &model.add_game {
         page_children.push(KeyedView::new(
             "add-game-dialog",
-            add_game_dialog(draft, &model.scan, cx),
+            add_game_dialog(draft, &model.scan, &model.games, cx),
         ));
     }
 
@@ -220,15 +216,6 @@ fn refresh_button(cx: &ViewContext<KumoApp>) -> View {
         .into()
 }
 
-/// Subtle add-folder button that routes to the settings slice via the root.
-fn add_folder_button(cx: &ViewContext<KumoApp>) -> View {
-    Button::new()
-        .style(ButtonStyle::Subtle)
-        .on_click(cx.message(AppMessage::Settings(SettingsMessage::AddFolder)))
-        .content(icon_content(Symbol::Add, tr("settings.add_folder")))
-        .into()
-}
-
 /// Opens the single-executable add flow without requiring a library folder.
 fn add_game_button(cx: &ViewContext<KumoApp>) -> View {
     Button::new()
@@ -238,23 +225,54 @@ fn add_game_button(cx: &ViewContext<KumoApp>) -> View {
         .into()
 }
 
-fn add_game_dialog(dialog: &AddGameDialog, scan: &ScanStatus, cx: &ViewContext<KumoApp>) -> View {
+fn add_game_dialog(
+    dialog: &AddGameDialog,
+    scan: &ScanStatus,
+    library_games: &[LibraryGame],
+    cx: &ViewContext<KumoApp>,
+) -> View {
     match dialog {
         AddGameDialog::Selecting {
             candidates,
             selected,
         } => {
             let items = candidates.iter().map(|game| {
-                DataItem::new(game.path.clone(), &game.name).content(
-                    StackPanel::new().spacing(2.0).children((
-                        TextBlock::new().text(game.name.clone()).font_size(14.0),
+                let in_library = is_game_in_library(library_games, game);
+                let mut name = TextBlock::new().text(game.name.clone()).font_size(14.0);
+                if in_library {
+                    name = name.foreground(TEXT_TERTIARY);
+                }
+                let path_color = if in_library {
+                    TEXT_TERTIARY
+                } else {
+                    TEXT_SECONDARY
+                };
+                let mut children: Vec<View> = vec![
+                    name.into(),
+                    TextBlock::new()
+                        .text(game.path.clone())
+                        .font_size(12.0)
+                        .foreground(path_color)
+                        .max_lines(1)
+                        .text_trimming(TextTrimming::CharacterEllipsis)
+                        .into(),
+                ];
+                if in_library {
+                    children.push(
                         TextBlock::new()
-                            .text(game.path.clone())
+                            .text(tr("library.add_game.already_added"))
                             .font_size(12.0)
-                            .foreground(TEXT_SECONDARY)
-                            .max_lines(1)
-                            .text_trimming(TextTrimming::CharacterEllipsis),
-                    )),
+                            .foreground(TEXT_TERTIARY)
+                            .into(),
+                    );
+                }
+                DataItem::new(game.path.clone(), &game.name).content(
+                    StackPanel::new().spacing(2.0).keyed_children(
+                        children
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, child)| KeyedView::new(index, child)),
+                    ),
                 )
             });
             let has_selection = selected.is_some();

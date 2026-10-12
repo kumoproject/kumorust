@@ -15,8 +15,9 @@ saves the settings and refreshes the library. Icons are cached under
 
 ## Add a game
 
-The Library page has an **Add game** entry that opens the Windows file picker
-for one `.exe`. KumoRust hashes that file with SHA-256 and sends only the
+The Library page has an **Add game** entry that lists every `.exe` found in the
+indexed folders. Executables already in the library stay visible but cannot be
+selected. KumoRust hashes a selected file with SHA-256 and sends only the
 fingerprint to kumo-server. A known fingerprint is filled immediately; an
 unknown one opens a metadata dialog with an RJ search action and a manual save
 path. Successful entries are cached locally so a later library scan keeps the

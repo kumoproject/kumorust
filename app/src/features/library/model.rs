@@ -192,3 +192,11 @@ pub fn merge_games(local_games: &[GameEntry], remote_games: &[RemoteGame]) -> Ve
     });
     games
 }
+
+pub fn is_game_in_library(library_games: &[LibraryGame], candidate: &GameEntry) -> bool {
+    library_games.iter().any(|game| {
+        game.local
+            .as_ref()
+            .is_some_and(|local| local.path.eq_ignore_ascii_case(&candidate.path))
+    })
+}

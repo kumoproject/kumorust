@@ -1,6 +1,7 @@
 use crate::features::library::message::LibraryMessage;
 use crate::features::library::model::{
-    AddGameDialog, AddGameDraft, AddGameStatus, LibraryModel, ScanStatus, merge_games,
+    AddGameDialog, AddGameDraft, AddGameStatus, LibraryModel, ScanStatus, is_game_in_library,
+    merge_games,
 };
 use crate::ui::format::epoch_seconds;
 use kumo_contracts::{ExecutableFingerprint, GameMetadata};
@@ -82,18 +83,28 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
         }
         LibraryMessage::AddGame => {
             model.add_game = Some(AddGameDialog::Selecting {
-                candidates: add_game_candidates(model),
+                candidates: model.local_games.clone(),
                 selected: None,
             });
             LibraryEffect::None
         }
         LibraryMessage::SelectAddGame(selected) => {
+            let selectable = selected.filter(|index| {
+                model
+                    .add_game
+                    .as_ref()
+                    .and_then(|dialog| match dialog {
+                        AddGameDialog::Selecting { candidates, .. } => candidates.get(*index),
+                        _ => None,
+                    })
+                    .is_some_and(|candidate| !is_game_in_library(&model.games, candidate))
+            });
             if let Some(AddGameDialog::Selecting {
                 candidates,
                 selected: current,
             }) = model.add_game.as_mut()
             {
-                *current = selected.filter(|index| *index < candidates.len());
+                *current = selectable.filter(|index| *index < candidates.len());
             }
             LibraryEffect::None
         }
@@ -192,6 +203,9 @@ pub fn update(model: &mut LibraryModel, message: LibraryMessage) -> LibraryEffec
                     let Some(candidate) = candidates.get(*index) else {
                         return LibraryEffect::None;
                     };
+                    if is_game_in_library(&model.games, candidate) {
+                        return LibraryEffect::None;
+                    }
                     let path = candidate.path.clone();
                     model.add_game = Some(AddGameDialog::LookingUp);
                     LibraryEffect::Fingerprint { path }
@@ -324,21 +338,6 @@ fn update_draft(model: &mut LibraryModel, update: impl FnOnce(&mut AddGameDraft)
     LibraryEffect::None
 }
 
-fn add_game_candidates(model: &LibraryModel) -> Vec<crate::domain::folder::GameEntry> {
-    model
-        .local_games
-        .iter()
-        .filter(|candidate| {
-            !model.games.iter().any(|game| {
-                game.local
-                    .as_ref()
-                    .is_some_and(|local| local.path.eq_ignore_ascii_case(&candidate.path))
-            })
-        })
-        .cloned()
-        .collect()
-}
-
 fn refresh_add_game_candidates(model: &mut LibraryModel) {
     let selected_path = match model.add_game.as_ref() {
         Some(AddGameDialog::Selecting {
@@ -347,19 +346,20 @@ fn refresh_add_game_candidates(model: &mut LibraryModel) {
         }) => candidates.get(*index).map(|game| game.path.clone()),
         _ => None,
     };
-    let candidates = add_game_candidates(model);
+    let candidates = model.local_games.clone();
+    let next_selected = selected_path.and_then(|path| {
+        candidates.iter().position(|game| {
+            game.path.eq_ignore_ascii_case(&path) && !is_game_in_library(&model.games, game)
+        })
+    });
 
     if let Some(AddGameDialog::Selecting {
         candidates: current_candidates,
-        selected,
+        selected: current_selected,
     }) = model.add_game.as_mut()
     {
         *current_candidates = candidates;
-        *selected = selected_path.and_then(|path| {
-            current_candidates
-                .iter()
-                .position(|game| game.path.eq_ignore_ascii_case(&path))
-        });
+        *current_selected = next_selected;
     }
 }
 
